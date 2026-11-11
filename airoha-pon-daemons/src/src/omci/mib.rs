@@ -17,6 +17,7 @@ use super::provisioning::{
 };
 use super::schema::{self, AttributeAccess, AttributeKind, CreateSource, ManagedEntityOrigin};
 use super::security;
+use crate::config::loid_field;
 
 #[allow(unused_imports)]
 pub use super::schema::{
@@ -308,7 +309,7 @@ impl Mib {
             .read_write(7, vec![0])
             .read_only(8, vec![0])
             .read_only(9, vec![0])
-            .read_only(10, fixed_width(&identity.loid, 24))
+            .read_only(10, loid_field(&identity.loid, 24, identity.loid_padding))
             .read_only(11, fixed_width(&identity.loid_password, 12))
             .read_write(12, vec![0])
             .read_only(13, vec![0]);
@@ -377,7 +378,7 @@ impl Mib {
 
         let ctc_auth = ManagedEntity::default()
             .read_only(1, fixed_width(&identity.operator_id, 4))
-            .read_only(2, fixed_width(&identity.loid, 24))
+            .read_only(2, loid_field(&identity.loid, 24, identity.loid_padding))
             .read_only(3, fixed_width(&identity.loid_password, 12))
             .read_write(4, vec![0]);
         mib.insert(CLASS_CTC_LOID_AUTH, 0, ctc_auth);

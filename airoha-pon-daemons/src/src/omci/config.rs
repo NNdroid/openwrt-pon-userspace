@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-use crate::config::Section;
+use crate::config::{LoidPadding, Section};
 
 #[derive(Clone, Debug)]
 pub struct IdentityConfig {
@@ -14,6 +14,8 @@ pub struct IdentityConfig {
     pub software_version: Vec<u8>,
     pub loid: Vec<u8>,
     pub loid_password: Vec<u8>,
+    /// The OMCI LOID attributes have always been left aligned; keep that default.
+    pub loid_padding: LoidPadding,
     pub operator_id: Vec<u8>,
     pub serial_number: Vec<u8>,
 }
@@ -30,6 +32,7 @@ impl Default for IdentityConfig {
             software_version: b"OpenWrt".to_vec(),
             loid: Vec::new(),
             loid_password: Vec::new(),
+            loid_padding: LoidPadding::Trailing,
             operator_id: b"CTC".to_vec(),
             serial_number: Vec::new(),
         }
@@ -71,6 +74,8 @@ impl IdentityConfig {
                 *destination = value.as_bytes().to_vec();
             }
         }
+        config.loid_padding =
+            LoidPadding::from_option(section.option("loid_padding"), config.loid_padding);
 
         config
     }
@@ -162,6 +167,28 @@ mod tests {
 
         assert_eq!(identity.vendor_id, b"OWRT");
         assert!(identity.loid.is_empty());
+    }
+
+    #[test]
+    fn loid_padding_defaults_to_the_historical_alignment() {
+        let config = PonConfig::parse(
+            "config omci 'line0_omci'\n\
+             \toption line 'line0'\n",
+        )
+        .unwrap();
+        let identity =
+            IdentityConfig::from_section(config.linked_section("omci", "line0").unwrap());
+        assert_eq!(identity.loid_padding, crate::config::LoidPadding::Trailing);
+
+        let config = PonConfig::parse(
+            "config omci 'line0_omci'\n\
+             \toption line 'line0'\n\
+             \toption loid_padding 'leading'\n",
+        )
+        .unwrap();
+        let identity =
+            IdentityConfig::from_section(config.linked_section("omci", "line0").unwrap());
+        assert_eq!(identity.loid_padding, crate::config::LoidPadding::Leading);
     }
 
     #[test]

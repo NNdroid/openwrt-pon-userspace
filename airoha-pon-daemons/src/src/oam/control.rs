@@ -8,7 +8,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::ctc::Snapshot;
+use super::config::{fixed_width, OamConfig};
+use super::ctc::{hex_bytes, onu_sn, Snapshot};
+use crate::config::loid_field;
 
 const CONTROL_PROTOCOL_VERSION: u8 = 1;
 const EVENT_CAPACITY: usize = 256;
@@ -26,6 +28,8 @@ struct Inner {
     interface: String,
     operator: String,
     loid_configured: bool,
+    oam_config: OamConfig,
+    source_mac: [u8; 6],
     ieee_operational: bool,
     rx_messages: u64,
     tx_messages: u64,
@@ -45,12 +49,21 @@ pub struct StatusHub {
 }
 
 impl StatusHub {
-    pub fn new(interface: &str, operator: &str, loid_configured: bool, ctc: Snapshot) -> Self {
+    pub fn new(
+        interface: &str,
+        operator: &str,
+        loid_configured: bool,
+        ctc: Snapshot,
+        oam_config: OamConfig,
+        source_mac: [u8; 6],
+    ) -> Self {
         let hub = Self {
             shared: Arc::new(Mutex::new(Inner {
                 interface: interface.to_owned(),
                 operator: operator.to_owned(),
                 loid_configured,
+                oam_config,
+                source_mac,
                 ieee_operational: false,
                 rx_messages: 0,
                 tx_messages: 0,
@@ -199,6 +212,66 @@ fn status_json(inner: &Inner) -> String {
         .map(u16::to_string)
         .collect::<Vec<_>>()
         .join(",");
+    /* Report the exact bytes the CTC agent puts on the wire, not the raw UCI
+     * values: the ONU SN is assembled from several fields plus the parent MAC,
+     * and the LOID is right-aligned into a 24-byte authentication field. */
+    let onu_sn_hex = hex_bytes(&onu_sn(
+        &inner.oam_config,
+        inner.source_mac,
+        inner.ctc.selected_version,
+    ));
+    let loid_sent_hex = hex_bytes(&loid_field(
+        &inner.oam_config.loid,
+        24,
+        inner.oam_config.loid_padding,
+    ));
+    let source_mac = inner
+        .source_mac
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join(":");
+
+    /* Publish each configured identity field with the bytes the CTC agent
+     * really returns, so LuCI can show the zero padding and the fields that
+     * the negotiated CTC version skips without duplicating that logic. */
+    let config = &inner.oam_config;
+    let ctc_active = inner.operator == "ctc";
+    let ctc_v3 = ctc_active && inner.ctc.selected_version.unwrap_or(0) >= 0x30;
+    let firmware: Vec<u8> = config.firmware_version.iter().copied().take(127).collect();
+    let chipset_text = hex_bytes(&config.chipset_id);
+    let ports = config.ge_ports.to_string();
+    let onu_identity = format!(
+        concat!(
+            "{{\"vendor_id\":{},\"model\":{},\"equipment_id\":{},",
+            "\"hardware_version\":{},\"software_version\":{},",
+            "\"firmware_version\":{},\"chipset_id\":{},\"ge_ports\":{}}}"
+        ),
+        identity_field_json(
+            &config.vendor_id,
+            &fixed_width(&config.vendor_id, 4),
+            ctc_active
+        ),
+        identity_field_json(&config.model, &fixed_width(&config.model, 4), ctc_active),
+        identity_field_json(
+            &config.equipment_id,
+            &fixed_width(&config.equipment_id, 16),
+            ctc_v3,
+        ),
+        identity_field_json(
+            &config.hardware_version,
+            &fixed_width(&config.hardware_version, 8),
+            ctc_active,
+        ),
+        identity_field_json(
+            &config.software_version,
+            &fixed_width(&config.software_version, 16),
+            ctc_active,
+        ),
+        identity_field_json(&firmware, &firmware, ctc_active),
+        identity_field_json(chipset_text.as_bytes(), &config.chipset_id, ctc_active),
+        identity_field_json(ports.as_bytes(), &[config.ge_ports], ctc_active),
+    );
 
     format!(
         concat!(
@@ -208,6 +281,7 @@ fn status_json(inner: &Inner) -> String {
             "\"tx_messages\":{},\"parse_errors\":{},\"information_rx\":{},",
             "\"event_rx\":{},\"organization_rx\":{},\"last_code\":{},",
             "\"ctc_discovery_state\":{},\"ctc_version\":{},",
+            "\"source_mac\":{},\"onu_identity\":{},\"onu_sn\":{},\"loid_sent\":{},",
             "\"authentication_status\":{},\"authentication_failure\":{},",
             "\"ctc_get_requests\":{},\"ctc_set_requests\":{},",
             "\"ctc_unsupported_requests\":{},\"vlan_object\":{},\"vlan_mode\":{},",
@@ -228,6 +302,10 @@ fn status_json(inner: &Inner) -> String {
         last_code,
         json_string(inner.ctc.discovery_state),
         selected_version,
+        json_string(&source_mac),
+        onu_identity,
+        json_string(&onu_sn_hex),
+        json_string(&loid_sent_hex),
         json_string(inner.ctc.authentication),
         authentication_failure,
         inner.ctc.get_requests,
@@ -237,6 +315,17 @@ fn status_json(inner: &Inner) -> String {
         vlan_mode,
         vlan_ids,
         inner.event_sequence,
+    )
+}
+
+fn identity_field_json(text: &[u8], wire: &[u8], sent: bool) -> String {
+    let text = String::from_utf8_lossy(text);
+
+    format!(
+        "{{\"text\":{},\"wire\":{},\"sent\":{}}}",
+        json_string(&text),
+        json_string(&hex_bytes(wire)),
+        sent
     )
 }
 
@@ -287,4 +376,21 @@ fn now_ms() -> u128 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_field_json_reports_wire_bytes_and_sent_flag() {
+        assert_eq!(
+            identity_field_json(b"AN7581", b"AN7581\0\0", true),
+            "{\"text\":\"AN7581\",\"wire\":\"414e3738310000\",\"sent\":true}"
+        );
+        assert_eq!(
+            identity_field_json(b"", &[0; 4], false),
+            "{\"text\":\"\",\"wire\":\"00000000\",\"sent\":false}"
+        );
+    }
 }

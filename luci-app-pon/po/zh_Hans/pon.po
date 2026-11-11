@@ -172,6 +172,18 @@ msgstr "已配置 LOID"
 msgid "LOID password"
 msgstr "LOID 密码"
 
+msgid "LOID padding"
+msgstr "LOID 补零方向"
+
+msgid "Before the LOID (right aligned)"
+msgstr "在 LOID 之前补零（右对齐）"
+
+msgid "After the LOID (left aligned)"
+msgstr "在 LOID 之后补零（左对齐）"
+
+msgid "Which side of the 24-byte LOID field carries the 0x00 fill."
+msgstr "24 字节 LOID 字段中的 0x00 填充放在哪一侧。"
+
 msgid "Line mode"
 msgstr "线路模式"
 
@@ -548,6 +560,15 @@ msgstr "CTC 发现"
 
 msgid "CTC version"
 msgstr "CTC 版本"
+
+msgid "CTC ONU SN (0xC7/0x0001)"
+msgstr "CTC ONU SN（0xC7/0x0001，实际发送）"
+
+msgid "LOID sent in authentication"
+msgstr "认证帧中实际发送的 LOID"
+
+msgid "Printable form: %s"
+msgstr "可打印形式：%s"
 
 msgid "Received OAM messages"
 msgstr "OAM 接收报文"
@@ -941,3 +962,39 @@ msgstr "Alloc-ID 等待超时"
 
 msgid "Seconds a data path may wait for PLOAM to assign its Alloc-ID before it is reported as failed. The ONU keeps waiting afterwards; 0 disables the timeout."
 msgstr "数据通道等待 PLOAM 分配 Alloc-ID 的秒数，超过后报告失败。之后 ONU 仍会继续等待；0 表示不超时。"
+
+msgid "Use six colon-separated hexadecimal bytes, e.g. 00:11:22:33:44:55."
+msgstr "请使用 6 个以冒号分隔的十六进制字节，例如 00:11:22:33:44:55。"
+
+msgid "The PON MAC address must be a unicast address."
+msgstr "PON MAC 地址必须是单播地址。"
+
+msgid "The PON MAC address must not be all zeros."
+msgstr "PON MAC 地址不能全为零。"
+
+msgid "Used only by XG-PON and XGS-PON PLOAM registration; EPON registers with the PON MAC address."
+msgstr "仅 XG-PON / XGS-PON 的 PLOAM 注册使用该 SN；EPON 使用 PON MAC 地址注册。"
+
+msgid "Overrides the PON interface MAC used for EPON registration and the CTC ONU SN. Takes effect after a PON restart. Clearing it restores the factory MAC only after a reboot."
+msgstr "覆盖用于 EPON 注册和 CTC ONU SN 的 PON 接口 MAC 地址，重启 PON 线路后生效。清空该项后需重启设备才能恢复出厂 MAC。"
+
+msgid "PON MAC used in ONU SN"
+msgstr "ONU SN 中实际使用的 PON MAC"
+
+msgid "Not configured"
+msgstr "未配置"
+
+msgid "Currently: %s"
+msgstr "当前：%s"
+
+msgid "Actually sent: %s"
+msgstr "实际发送：%s"
+
+msgid "Not sent with the current OAM profile or CTC version."
+msgstr "当前 OAM 协议或 CTC 版本下不会发送该字段。"
+
+msgid "The running OAM agent does not report the current value."
+msgstr "当前运行的 OAM 代理未上报该实际值。"
+
+msgid "The port count is embedded in the 26-byte ONU capabilities attribute."
+msgstr "端口数量嵌在 26 字节的 ONU 能力属性中上报。"

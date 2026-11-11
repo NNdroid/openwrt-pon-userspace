@@ -2,7 +2,8 @@
 
 use std::collections::BTreeSet;
 
-use super::config::{fixed_width, fixed_width_right, OamConfig};
+use super::config::{fixed_width, OamConfig};
+use crate::config::loid_field;
 use crate::wire::{Reader, Writer};
 
 const INFO_TYPE_ORGANIZATION_SPECIFIC: u8 = 0xfe;
@@ -39,6 +40,22 @@ const LEAF_VLAN: u16 = 0x0021;
 const SET_OK: u8 = 0x80;
 const BAD_PARAMETERS: u8 = 0x86;
 const NO_RESOURCE: u8 = 0x87;
+
+/// Exact bytes returned to the OLT for the CTC ONU SN attribute (0xC7/0x0001).
+/// The Get Response and the control status share this function, so the LuCI
+/// page reports the value really put on the wire: zero padding, the parent
+/// interface MAC, and the CTC 3.0 extension decided at runtime.
+pub fn onu_sn(config: &OamConfig, source_mac: [u8; 6], selected_version: Option<u8>) -> Vec<u8> {
+    let mut value = fixed_width(&config.vendor_id, 4);
+    value.extend_from_slice(&fixed_width(&config.model, 4));
+    value.extend_from_slice(&source_mac);
+    value.extend_from_slice(&fixed_width(&config.hardware_version, 8));
+    value.extend_from_slice(&fixed_width(&config.software_version, 16));
+    if selected_version.unwrap_or(0) >= 0x30 {
+        value.extend_from_slice(&fixed_width(&config.equipment_id, 16));
+    }
+    value
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DiscoveryState {
@@ -285,8 +302,9 @@ impl CtcSession {
                 if auth_type == AUTH_TYPE_LOID_PASSWORD {
                     response.be16(0x0025);
                     response.u8(AUTH_TYPE_LOID_PASSWORD);
-                    // CTC stores the LOID right-aligned in a 24-byte field.
-                    response.bytes(&fixed_width_right(&config.loid, 24));
+                    // CTC stores the LOID in a 24-byte field; the configured
+                    // padding selects the side that carries the 0x00 fill.
+                    response.bytes(&loid_field(&config.loid, 24, config.loid_padding));
                     response.bytes(&fixed_width(&config.loid_password, 12));
                 } else {
                     response.be16(2);
@@ -469,15 +487,7 @@ impl CtcSession {
 
         match leaf {
             LEAF_ONU_SN if object.is_none() => {
-                let mut value = fixed_width(&config.vendor_id, 4);
-                value.extend_from_slice(&fixed_width(&config.model, 4));
-                value.extend_from_slice(&source_mac);
-                value.extend_from_slice(&fixed_width(&config.hardware_version, 8));
-                value.extend_from_slice(&fixed_width(&config.software_version, 16));
-                if self.selected_version.unwrap_or(0) >= 0x30 {
-                    value.extend_from_slice(&fixed_width(&config.equipment_id, 16));
-                }
-                Ok(value)
+                Ok(onu_sn(config, source_mac, self.selected_version))
             }
             LEAF_FIRMWARE_VERSION if object.is_none() => {
                 Ok(config.firmware_version.iter().copied().take(127).collect())
@@ -635,7 +645,7 @@ fn format_variable_event(
     )
 }
 
-fn hex_bytes(value: &[u8]) -> String {
+pub(crate) fn hex_bytes(value: &[u8]) -> String {
     use std::fmt::Write as _;
 
     let mut output = String::with_capacity(value.len() * 2);
@@ -715,5 +725,26 @@ mod tests {
             "CTC SET object=global branch=0xc7 leaf=0x0022 length=1 result=0x86 value=00"
         );
         assert_eq!(session.unsupported_requests, 1);
+    }
+
+    #[test]
+    fn onu_sn_matches_the_bytes_sent_for_the_ctc_attribute() {
+        let config = OamConfig::default();
+        let mac = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+
+        let v21 = onu_sn(&config, mac, Some(0x21));
+        assert_eq!(v21.len(), 38);
+        assert_eq!(&v21[..4], b"OWRT");
+        assert_eq!(&v21[4..8], b"AN75");
+        assert_eq!(&v21[8..14], &mac[..]);
+        assert_eq!(&v21[14..22], b"AN7581\0\0");
+        assert_eq!(&v21[22..38], b"OpenWrt\0\0\0\0\0\0\0\0\0");
+        assert_eq!(hex_bytes(&v21).len(), 76);
+
+        let v30 = onu_sn(&config, mac, Some(0x30));
+        assert_eq!(v30.len(), 54);
+        assert_eq!(&v30[38..54], b"AN75\0\0\0\0\0\0\0\0\0\0\0\0");
+
+        assert_eq!(onu_sn(&config, mac, None), v21);
     }
 }

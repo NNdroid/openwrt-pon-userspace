@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=airoha-ponctl
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_URL:=https://github.com/pbs05/openwrt-pon-userspace/tree/main/airoha-ponctl
 
 PKG_LICENSE:=GPL-2.0-only
@@ -44,6 +44,9 @@ define Package/airoha-ponctl/install
 	chmod 0600 $(1)/etc/config/pon
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/pon.init $(1)/etc/init.d/pon
+	$(INSTALL_BIN) ./files/pon-reopen.init $(1)/etc/init.d/pon-reopen
+	$(INSTALL_DIR) $(1)/usr/libexec
+	$(INSTALL_BIN) ./files/pon-reopen $(1)/usr/libexec/pon-reopen
 endef
 
 $(eval $(call RustBinPackage,airoha-ponctl))

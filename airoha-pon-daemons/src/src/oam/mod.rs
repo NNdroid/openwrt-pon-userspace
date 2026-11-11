@@ -40,6 +40,8 @@ pub fn run_agent(interface: &str, config: OamConfig, control_socket: &Path) -> i
         &config.operator,
         !config.loid.is_empty(),
         ctc.snapshot(),
+        config.clone(),
+        source_mac,
     );
     let _control_server = start_server(control_socket, status.clone())?;
     let mut receive_buffer = [0u8; RECEIVE_BUFFER_LEN];

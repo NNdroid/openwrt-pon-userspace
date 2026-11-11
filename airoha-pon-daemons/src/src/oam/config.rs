@@ -2,7 +2,7 @@
 
 use std::io;
 
-use crate::config::Section;
+use crate::config::{LoidPadding, Section};
 
 #[derive(Clone, Debug)]
 pub struct OamConfig {
@@ -18,6 +18,8 @@ pub struct OamConfig {
     pub chipset_id: [u8; 8],
     pub loid: Vec<u8>,
     pub loid_password: Vec<u8>,
+    /// CTC AUTH_RESPONSE has always right aligned the LOID; keep that default.
+    pub loid_padding: LoidPadding,
     pub ge_ports: u8,
 }
 
@@ -36,6 +38,7 @@ impl Default for OamConfig {
             chipset_id: [0x00, 0x00, 0x75, 0x81, 0x00, 0x00, 0x00, 0x00],
             loid: Vec::new(),
             loid_password: Vec::new(),
+            loid_padding: LoidPadding::Leading,
             ge_ports: 1,
         }
     }
@@ -84,6 +87,8 @@ impl OamConfig {
                 io::Error::new(io::ErrorKind::InvalidData, "ge_ports must be an integer")
             })?;
         }
+        config.loid_padding =
+            LoidPadding::from_option(section.option("loid_padding"), config.loid_padding);
 
         config.validate()?;
         Ok(config)
@@ -114,13 +119,6 @@ pub fn fixed_width(value: &[u8], width: usize) -> Vec<u8> {
     let mut output = vec![0; width];
     let copied = value.len().min(width);
     output[..copied].copy_from_slice(&value[..copied]);
-    output
-}
-
-pub fn fixed_width_right(value: &[u8], width: usize) -> Vec<u8> {
-    let mut output = vec![0; width];
-    let copied = value.len().min(width);
-    output[width - copied..].copy_from_slice(&value[..copied]);
     output
 }
 
@@ -197,6 +195,26 @@ mod tests {
     fn chipset_id_requires_eight_bytes() {
         assert!(parse_hex_array::<8>(b"7581", "chipset_id").is_err());
         assert!(parse_hex_array::<8>(b"01f2cce4010c06zz", "chipset_id").is_err());
+    }
+
+    #[test]
+    fn loid_padding_defaults_to_the_historical_alignment() {
+        let config = PonConfig::parse(
+            "config oam 'line0_oam'\n\
+             \toption line 'line0'\n",
+        )
+        .unwrap();
+        let oam = OamConfig::from_section(config.linked_section("oam", "line0").unwrap()).unwrap();
+        assert_eq!(oam.loid_padding, crate::config::LoidPadding::Leading);
+
+        let config = PonConfig::parse(
+            "config oam 'line0_oam'\n\
+             \toption line 'line0'\n\
+             \toption loid_padding 'trailing'\n",
+        )
+        .unwrap();
+        let oam = OamConfig::from_section(config.linked_section("oam", "line0").unwrap()).unwrap();
+        assert_eq!(oam.loid_padding, crate::config::LoidPadding::Trailing);
     }
 
     #[test]

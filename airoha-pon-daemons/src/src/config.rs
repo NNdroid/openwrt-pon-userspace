@@ -18,6 +18,44 @@ impl Section {
     }
 }
 
+/// Where the 0x00 fill goes when a LOID is shorter than its wire field.
+///
+/// The CTC LOID field is 24 bytes and deployments disagree about the side that
+/// carries the padding: some OLTs match the string at the end of the field
+/// (leading fill, right aligned) and some at the start (trailing fill, left
+/// aligned). The two protocol paths historically differed, so each config
+/// keeps its own default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoidPadding {
+    /// Fill before the LOID, right aligning it in the field.
+    Leading,
+    /// Fill after the LOID, left aligning it in the field.
+    Trailing,
+}
+
+impl LoidPadding {
+    /// Unknown values keep the caller's default so a typo cannot break a line.
+    pub fn from_option(value: Option<&str>, default: Self) -> Self {
+        match value {
+            Some("leading") => Self::Leading,
+            Some("trailing") => Self::Trailing,
+            _ => default,
+        }
+    }
+}
+
+pub fn loid_field(value: &[u8], width: usize, padding: LoidPadding) -> Vec<u8> {
+    let mut output = vec![0; width];
+    let copied = value.len().min(width);
+
+    match padding {
+        LoidPadding::Leading => output[width - copied..].copy_from_slice(&value[..copied]),
+        LoidPadding::Trailing => output[..copied].copy_from_slice(&value[..copied]),
+    }
+
+    output
+}
+
 #[derive(Clone, Debug)]
 pub struct PonConfig {
     sections: Vec<Section>,
@@ -168,6 +206,40 @@ fn split_uci_line(line: &str) -> Result<Vec<String>, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loid_padding_places_the_fill_on_the_configured_side() {
+        assert_eq!(
+            loid_field(b"myloid", 8, LoidPadding::Leading),
+            b"\0\0myloid"
+        );
+        assert_eq!(
+            loid_field(b"myloid", 8, LoidPadding::Trailing),
+            b"myloid\0\0"
+        );
+    }
+
+    #[test]
+    fn loid_padding_truncates_and_keeps_the_empty_field_zeroed() {
+        assert_eq!(loid_field(&[b'A'; 24], 4, LoidPadding::Trailing), b"AAAA");
+        assert_eq!(loid_field(b"", 24, LoidPadding::Leading), vec![0; 24]);
+    }
+
+    #[test]
+    fn unknown_loid_padding_keeps_the_callers_default() {
+        assert_eq!(
+            LoidPadding::from_option(Some("leading"), LoidPadding::Trailing),
+            LoidPadding::Leading
+        );
+        assert_eq!(
+            LoidPadding::from_option(Some("typo"), LoidPadding::Trailing),
+            LoidPadding::Trailing
+        );
+        assert_eq!(
+            LoidPadding::from_option(None, LoidPadding::Leading),
+            LoidPadding::Leading
+        );
+    }
 
     #[test]
     fn parses_named_sections_and_quoted_values() {

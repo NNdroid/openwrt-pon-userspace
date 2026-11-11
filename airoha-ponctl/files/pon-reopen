@@ -1,0 +1,127 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+
+# The first ndo_open() of a PON line after boot can leave the EPON MAC in an
+# LLID epoch that the OLT never grants upstream slots for: the line registers,
+# misses every grant one second later, and then loops forever. Measured on
+# this hardware, the driver's own recovery ladder cannot repair that state
+# even though it power-cycles the optics and resets the MAC - controller_stop()
+# performs synchronize_irq() before taking state_lock, which is impossible
+# from inside link_work(), so the ladder never reproduces a real close/open.
+#
+# A plain interface down/up does reproduce it, so re-open the line once after
+# the first open whenever the carrier keeps flapping. The carrier follows the
+# LLID registration: it goes up when the driver reports a registered line and
+# drops on the next MPCP timeout, so a wedged line flaps every few seconds
+# while a healthy one holds it.
+
+. /lib/functions.sh
+
+LOG_TAG=pon-reopen
+SETTLE_SECONDS=3
+CARRIER_WAIT_SECONDS=30
+VERIFY_SECONDS=12
+MAX_ATTEMPTS=2
+
+log() {
+	logger -t "$LOG_TAG" "$*"
+}
+
+# Returns 0 only if the carrier still reads 1 on every sample.
+carrier_stable() {
+	local device="$1"
+	local index=0
+
+	while [ "$index" -lt "$VERIFY_SECONDS" ]; do
+		[ "$(cat "/sys/class/net/$device/carrier" 2>/dev/null)" = "1" ] ||
+			return 1
+		sleep 1
+		index=$((index + 1))
+	done
+
+	return 0
+}
+
+# Waits for the first LLID registration, which is what raises the carrier.
+wait_for_carrier() {
+	local device="$1"
+	local deadline=$(( $(date +%s) + CARRIER_WAIT_SECONDS ))
+
+	while [ "$(date +%s)" -lt "$deadline" ]; do
+		[ "$(cat "/sys/class/net/$device/carrier" 2>/dev/null)" = "1" ] &&
+			return 0
+		sleep 1
+	done
+
+	return 1
+}
+
+wait_for_line_up() {
+	local device="$1"
+	local deadline=$(( $(date +%s) + 90 ))
+	local flags
+
+	while [ "$(date +%s)" -lt "$deadline" ]; do
+		flags=$(cat "/sys/class/net/$device/flags" 2>/dev/null)
+		# A line netifd keeps administratively down is not ours to raise.
+		if [ -n "$flags" ] && [ $((flags & 1)) -eq 1 ]; then
+			return 0
+		fi
+		sleep 1
+	done
+
+	return 1
+}
+
+reopen_line() {
+	local device="$1"
+
+	ip link set dev "$device" down || return 1
+	sleep 1
+	ip link set dev "$device" up || return 1
+}
+
+reopen_section() {
+	local section="$1"
+	local device enabled attempt=0
+
+	config_get device "$section" device
+	config_get_bool enabled "$section" reopen_on_boot 1
+
+	[ -n "$device" ] || return 0
+	[ "$enabled" -eq 1 ] || {
+		log "$device: boot re-open is disabled"
+		return 0
+	}
+	wait_for_line_up "$device" || {
+		log "$device: never came up, leaving it alone"
+		return 0
+	}
+
+	sleep "$SETTLE_SECONDS"
+	wait_for_carrier "$device"
+	if carrier_stable "$device"; then
+		log "$device: carrier is stable, leaving the first open alone"
+		return 0
+	fi
+
+	while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
+		attempt=$((attempt + 1))
+		log "$device: carrier is flapping, re-opening the line (attempt $attempt)"
+		reopen_line "$device" || log "$device: re-opening the line failed"
+		wait_for_carrier "$device"
+		if carrier_stable "$device"; then
+			log "$device: line is stable after re-opening"
+			return 0
+		fi
+	done
+
+	log "$device: line still flapping after $MAX_ATTEMPTS re-opens"
+}
+
+main() {
+	config_load pon
+	config_foreach reopen_section xpon
+}
+
+main "$@"

@@ -275,9 +275,27 @@ function loadStatus() {
 }
 
 function row(label, value) {
+	var content = value == null || value === '' ? _('Unknown') : value;
 	return E('tr', { 'class': 'tr' }, [
 		E('td', { 'class': 'td left', 'style': 'width: 42%' }, label),
-		E('td', { 'class': 'td left' }, value == null || value === '' ? _('Unknown') : String(value))
+		E('td', { 'class': 'td left' },
+			[ content && content.nodeType ? content : String(content) ])
+	]);
+}
+
+function displayWireBytes(value) {
+	var printable;
+
+	if (typeof value !== 'string' || !/^(?:[0-9a-f]{2})+$/i.test(value))
+		return _('Unknown');
+	printable = (value.match(/../g) || []).map(function(pair) {
+		var code = parseInt(pair, 16);
+		return (code >= 0x20 && code <= 0x7e) ? String.fromCharCode(code) : '.';
+	}).join('');
+	return E('div', {}, [
+		E('code', { 'style': 'word-break:break-all' }, [ value ]),
+		E('br', {}),
+		E('small', {}, [ _('Printable form: %s').format(printable) ])
 	]);
 }
 
@@ -438,6 +456,9 @@ function renderOam(item) {
 			row(_('CTC discovery'), displayCtcDiscovery(values.ctc_discovery_state)),
 			row(_('CTC version'), values.ctc_version == null ?
 				_('Not negotiated') : '0x' + Number(values.ctc_version).toString(16)),
+			row(_('PON MAC used in ONU SN'), values.source_mac),
+			row(_('CTC ONU SN (0xC7/0x0001)'), displayWireBytes(values.onu_sn)),
+			row(_('LOID sent in authentication'), displayWireBytes(values.loid_sent)),
 			row(_('LOID configured locally'), displayBoolean(values.loid_configured)),
 			row(_('LOID authentication'), displayAuthentication(values.authentication_status)),
 			row(_('CTC VLAN mode'), displayVlanMode(values.vlan_mode)),

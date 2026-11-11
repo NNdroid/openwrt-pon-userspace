@@ -6,17 +6,38 @@ USE_PROCD=1
 
 apply_line() {
 	local section="$1"
-	local device mode serial registration
+	local device mode serial registration macaddr current wanted state
 
 	config_get device "$section" device
 	config_get mode "$section" mode
 	config_get serial "$section" serial_number
 	config_get registration "$section" registration_id
+	config_get macaddr "$section" macaddr
 
 	[ -n "$device" ] || {
 		echo "xpon section '$section' has no device" >&2
 		return 1
 	}
+
+	# start_mac() latches dev_addr into the EPON address table on ndo_open,
+	# so a MAC change only reaches the wire on the next line down/up cycle.
+	# restart_pon() downs the line before restarting this service. Every UCI
+	# save reloads this service, so skip an already applied MAC: setting the
+	# address on a running line is otherwise rejected as busy and logged.
+	if [ -n "$macaddr" ]; then
+		current=$(cat "/sys/class/net/$device/address" 2>/dev/null | tr 'A-F' 'a-f')
+		wanted=$(printf '%s' "$macaddr" | tr 'A-F' 'a-f')
+		if [ "$current" = "$wanted" ]; then
+			:
+		elif ip link set dev "$device" address "$macaddr"; then
+			state=$(cat "/sys/class/net/$device/operstate" 2>/dev/null)
+			[ "$state" = "down" ] || logger -t pon \
+				"$device: MAC changed while the line is up; restart the PON line to use it"
+		else
+			logger -t pon "$device: could not apply the configured MAC '$macaddr'"
+		fi
+	fi
+
 	[ -n "$serial" ] || serial=default
 	[ -n "$registration" ] || registration=default
 

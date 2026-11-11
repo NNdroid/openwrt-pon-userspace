@@ -43,6 +43,24 @@ function validateSerialNumber(sectionId, value) {
 	return _('Use 16 hexadecimal digits or VEND followed by 8 hexadecimal digits.');
 }
 
+function validateMacAddress(sectionId, value) {
+	var first;
+
+	if (value == null || value === '')
+		return true;
+
+	if (!/^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/.test(value))
+		return _('Use six colon-separated hexadecimal bytes, e.g. 00:11:22:33:44:55.');
+
+	first = parseInt(value.slice(0, 2), 16);
+	if (first & 1)
+		return _('The PON MAC address must be a unicast address.');
+	if (/^00:00:00:00:00:00$/i.test(value))
+		return _('The PON MAC address must not be all zeros.');
+
+	return true;
+}
+
 function validateChipsetId(sectionId, value) {
 	if (value == null || value === '' || /^[0-9a-fA-F]{16}$/.test(value))
 		return true;
@@ -85,13 +103,63 @@ function parseStorageList(output) {
 	});
 }
 
+function printableWire(hex) {
+	return (String(hex || '').match(/../g) || []).map(function(pair) {
+		var code = parseInt(pair, 16);
+		return (code >= 0x20 && code <= 0x7e) ? String.fromCharCode(code) : '';
+	}).join('');
+}
+
+function spacedWire(hex) {
+	return (String(hex || '').match(/../g) || []).join(' ');
+}
+
+function applyActualValue(o, field, note) {
+	if (!field) {
+		o.description = _('The running OAM agent does not report the current value.');
+		return;
+	}
+
+	if (field.text)
+		o.placeholder = _('Currently: %s').format(field.text);
+
+	o.description = field.sent ?
+		_('Actually sent: %s').format(spacedWire(field.wire)) :
+		_('Not sent with the current OAM profile or CTC version.');
+
+	if (note)
+		o.description += ' ' + note;
+}
+
 return view.extend({
 	load: function() {
-		return fs.exec('/usr/libexec/airoha-pon-data', [ 'list' ]).then(function(result) {
-			if (result.code != 0)
-				throw new Error(result.stderr || result.stdout || _('Unable to list storage.'));
+		return Promise.all([
+			fs.exec('/usr/libexec/airoha-pon-data', [ 'list' ]).then(function(result) {
+				if (result.code != 0)
+					throw new Error(result.stderr || result.stdout || _('Unable to list storage.'));
 
-			return parseStorageList(result.stdout);
+				return parseStorageList(result.stdout);
+			}),
+			uci.load('pon').then(function() {
+				var sections = uci.sections('pon', 'oam');
+
+				if (!sections.length || !sections[0].line)
+					return null;
+				return L.resolveDefault(fs.exec_direct('/usr/bin/pondctl',
+					[ 'status', '--line', sections[0].line ]), null);
+			}).catch(function() {
+				return null;
+			}).then(function(output) {
+				if (!output)
+					return null;
+				try {
+					return JSON.parse(output);
+				} catch (error) {
+					return null;
+				}
+			})
+		]).then(function(results) {
+			return { storages: results[0], oam: results[1] };
 		});
 	},
 
@@ -118,8 +186,12 @@ return view.extend({
 		});
 	},
 
-	render: function(storages) {
-		var m, s, o, selector;
+	render: function(data) {
+		var m, s, o, selector, storages, oam, identity;
+
+		storages = data.storages;
+		oam = data.oam;
+		identity = oam ? oam.onu_identity : null;
 
 		m = new form.Map('pon', _('PON'),
 			_('Project source:') +
@@ -149,6 +221,7 @@ return view.extend({
 		o.depends('mode', '');
 		o.depends('mode', 'xgpon');
 		o.depends('mode', 'xgspon');
+		o.description = _('Used only by XG-PON and XGS-PON PLOAM registration; EPON registers with the PON MAC address.');
 
 		o = s.option(form.Value, 'registration_id', _('Registration-ID'));
 		o.password = true;
@@ -158,6 +231,12 @@ return view.extend({
 		o.depends('mode', 'xgspon');
 		o.validate = asciiLength(1, 36);
 		o.description = _('Optional; sent as all zeros when empty.');
+
+		o = s.option(form.Value, 'macaddr', _('PON MAC address'));
+		o.placeholder = _('Board MAC address');
+		o.rmempty = true;
+		o.validate = validateMacAddress;
+		o.description = _('Overrides the PON interface MAC used for EPON registration and the CTC ONU SN. Takes effect after a PON restart. Clearing it restores the factory MAC only after a reboot.');
 
 		s = m.section(form.TypedSection, 'omci', _('OMCI settings'));
 		s.anonymous = false;
@@ -178,6 +257,12 @@ return view.extend({
 		o = s.taboption('authentication', form.Value, 'loid', _('LOID'));
 		o.rmempty = true;
 		o.validate = asciiLength(1, 24);
+
+		o = s.taboption('authentication', form.ListValue, 'loid_padding', _('LOID padding'));
+		o.default = 'trailing';
+		o.value('leading', _('Before the LOID (right aligned)'));
+		o.value('trailing', _('After the LOID (left aligned)'));
+		o.description = _('Which side of the 24-byte LOID field carries the 0x00 fill.');
 
 		o = s.taboption('authentication', form.Value, 'loid_password', _('LOID password'));
 		o.password = true;
@@ -246,6 +331,18 @@ return view.extend({
 		o.rmempty = true;
 		o.depends('operator', 'ctc');
 		o.validate = asciiLength(1, 24);
+		applyActualValue(o, oam && typeof oam.loid_sent === 'string' ? {
+			text: printableWire(oam.loid_sent) || _('Not configured'),
+			wire: oam.loid_sent,
+			sent: oam.operator === 'ctc'
+		} : null);
+
+		o = s.taboption('authentication', form.ListValue, 'loid_padding', _('LOID padding'));
+		o.default = 'leading';
+		o.depends('operator', 'ctc');
+		o.value('leading', _('Before the LOID (right aligned)'));
+		o.value('trailing', _('After the LOID (left aligned)'));
+		o.description = _('Which side of the 24-byte LOID field carries the 0x00 fill.');
 
 		o = s.taboption('authentication', form.Value, 'loid_password', _('LOID password'));
 		o.password = true;
@@ -256,34 +353,43 @@ return view.extend({
 		o = s.taboption('identity', form.Value, 'vendor_id', _('Vendor ID'));
 		o.rmempty = true;
 		o.validate = asciiLength(4, 4);
+		applyActualValue(o, identity && identity.vendor_id);
 
 		o = s.taboption('identity', form.Value, 'model', _('ONU short model'));
 		o.rmempty = true;
 		o.validate = asciiLength(4, 4);
+		applyActualValue(o, identity && identity.model);
 
 		o = s.taboption('identity', form.Value, 'equipment_id', _('Equipment ID'));
 		o.rmempty = true;
 		o.validate = asciiLength(1, 16);
+		applyActualValue(o, identity && identity.equipment_id);
 
 		o = s.taboption('identity', form.Value, 'hardware_version', _('Hardware version'));
 		o.rmempty = true;
 		o.validate = asciiLength(1, 8);
+		applyActualValue(o, identity && identity.hardware_version);
 
 		o = s.taboption('identity', form.Value, 'software_version', _('Software version'));
 		o.rmempty = true;
 		o.validate = asciiLength(1, 16);
+		applyActualValue(o, identity && identity.software_version);
 
 		o = s.taboption('identity', form.Value, 'firmware_version', _('Firmware version'));
 		o.rmempty = true;
 		o.validate = asciiLength(1, 127);
+		applyActualValue(o, identity && identity.firmware_version);
 
 		o = s.taboption('identity', form.Value, 'chipset_id', _('Chipset ID'));
 		o.rmempty = true;
 		o.validate = validateChipsetId;
+		applyActualValue(o, identity && identity.chipset_id);
 
 		o = s.taboption('identity', form.Value, 'ge_ports', _('Ethernet port count'));
 		o.default = '1';
 		o.datatype = 'range(1,64)';
+		applyActualValue(o, identity && identity.ge_ports,
+			_('The port count is embedded in the 26-byte ONU capabilities attribute.'));
 
 		return m.render().then(L.bind(function(map) {
 			if (!storages.length)
