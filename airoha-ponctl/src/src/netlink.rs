@@ -419,6 +419,22 @@ const REGISTRATION_FIELDS: &[(&str, StatusKind)] = &[
     ("crypto_key_exchange_state", StatusKind::U32),
     ("crypto_key_exchange_errors", StatusKind::U32),
     ("crypto_current_key_index", StatusKind::U32),
+    // EPON negotiation / recovery state, appended in one group. Keep in sync
+    // with the tail of airoha_xpon_registration_attr.
+    ("epon_link_up_pending", StatusKind::Bool),
+    ("epon_sync_time", StatusKind::U32),
+    ("epon_channel", StatusKind::U32),
+    ("epon_discovery_seen", StatusKind::Bool),
+    ("epon_discovery_retry", StatusKind::U32),
+    ("epon_unanswered_requests", StatusKind::U32),
+    ("epon_registered_timeout_streak", StatusKind::U32),
+    ("epon_reopen_holding", StatusKind::Bool),
+    ("epon_reopen_cooldown_ms", StatusKind::U32),
+    ("epon_tx_dark_ms", StatusKind::U32),
+    ("epon_denied_ms", StatusKind::U32),
+    ("epon_rx_mpcp", StatusKind::U32),
+    ("epon_tx_mpcp", StatusKind::U32),
+    ("epon_rx_oam", StatusKind::U32),
 ];
 
 const DATAPATH_FIELDS: &[(&str, StatusKind)] = &[

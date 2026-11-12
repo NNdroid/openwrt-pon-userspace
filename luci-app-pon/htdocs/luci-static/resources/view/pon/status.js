@@ -75,16 +75,95 @@ function displayOptionalBoolean(obj, field) {
 	return displayBoolean(obj[field]);
 }
 
-function displayOptionalHex(obj, field) {
+/* Use hexCode() so every hex value on this page is zero-padded the same way. */
+function displayOptionalHex(obj, field, width) {
 	if (!obj || !Object.prototype.hasOwnProperty.call(obj, field))
 		return _('Not supported');
-	return '0x' + Number(obj[field]).toString(16);
+	return hexCode(obj[field], width || 4);
 }
 
-function displayOptionalDuration(obj, field) {
+/*
+ * The control daemons emit JSON null for optional objects the OLT has not
+ * negotiated yet. Stringifying that directly would print a literal "null".
+ */
+function displayOptionalScalar(value, format, emptyLabel) {
+	if (value == null || value === '')
+		return emptyLabel || _('None');
+	return format ? format(value) : String(value);
+}
+
+function hexCode(value, width) {
+	var text = Number(value).toString(16);
+
+	while (text.length < width)
+		text = '0' + text;
+	return '0x' + text;
+}
+
+function displayOptionalCode(value) {
+	return displayOptionalScalar(value, function(code) {
+		return hexCode(code, 2);
+	});
+}
+
+/*
+ * CTC 0xC7 carries the ONU identity. Every field reports the readable text,
+ * the exact bytes the agent puts on the wire, and whether the negotiated CTC
+ * version includes that attribute at all (CTC 3.0 adds the equipment ID).
+ */
+function displayIdentityField(identity, field) {
+	var value = identity && identity[field];
+
+	if (!value)
+		return _('Not reported');
+	if (value.sent !== true)
+		return _('Not sent by this CTC version: %s').format(
+			value.text || _('None'));
+	return E('div', {}, [
+		E('span', {}, value.text || _('None')),
+		E('br', {}),
+		E('small', {}, _('On the wire: %s').format(value.wire || _('None')))
+	]);
+}
+
+/*
+ * Zero is a sentinel, not a measured duration: registered_ms=0 means "not
+ * registered now" and last_registered_ms=0 means "never registered". Callers
+ * pass the label that matches the field instead of printing a misleading 0.0 s.
+ */
+function displayOptionalDuration(obj, field, zeroLabel) {
 	if (!obj || !Object.prototype.hasOwnProperty.call(obj, field))
 		return _('Not supported');
+	if (Number(obj[field]) === 0)
+		return zeroLabel || _('None');
 	return (Number(obj[field]) / 1000).toFixed(1) + ' s';
+}
+
+/*
+ * The driver only raises carrier after the LLID survives a stability window.
+ * Without this row a dead LLID briefly looks like a working line: MPCP says
+ * "Registered" and the LLID is shown while pon0 is still carrier-down.
+ */
+function displayCarrierState(registration, line) {
+	if (!Object.prototype.hasOwnProperty.call(registration,
+	                                          'epon_link_up_pending'))
+		return _('Not supported');
+	if (registration.epon_link_up_pending === true)
+		return _('Confirming registration (carrier pending)');
+	if (registration.llid_valid === true && line.lifecycle === 'operational')
+		return _('Carrier published');
+	return _('Not published');
+}
+
+function displayOmciTransaction(transaction) {
+	if (!transaction || typeof transaction !== 'object')
+		return _('None');
+	return _('TCI %s, class %s, entity %s, action %s, mask %s, result %s').format(
+		hexCode(transaction.tci, 4), transaction.class_id,
+		transaction.entity_id, hexCode(transaction.action, 2),
+		hexCode(transaction.attribute_mask, 4),
+		transaction.result == null ? _('None') :
+			hexCode(transaction.result, 2));
 }
 
 function displayStartError(value) {
@@ -107,7 +186,7 @@ function displayCryptoValue(registration, field, kind) {
 	if (kind === 'bool')
 		return displayOptionalBoolean(registration, field);
 	if (kind === 'hex')
-		return displayOptionalHex(registration, field);
+		return displayOptionalHex(registration, field, 2);
 	return displayOptional(registration, field);
 }
 
@@ -167,6 +246,7 @@ function displayAuthentication(value) {
 	case 'not-reported': return _('Not reported');
 	case 'not-authenticated': return _('Not authenticated');
 	case 'accepted': return _('Accepted');
+	case 'rejected': return _('Rejected by the OLT');
 	case 'loid-not-found': return _('LOID does not exist');
 	case 'password-mismatch': return _('LOID exists, but the password is incorrect');
 	case 'loid-conflict': return _('LOID is already authenticated by another ONU');
@@ -424,9 +504,12 @@ function renderLine(item) {
 		main.push(
 			row(_('PCS synchronized'), displayBoolean(line.pcs_sync)),
 			row(_('MPCP state'), displayMpcpState(registration.mpcp_state)),
+			row(_('Carrier state'), displayCarrierState(registration, line)),
 			row(_('LLID0'), registration.llid_valid === true ? registration.llid : _('Not assigned')),
 			row(_('LLID0 data path configured'), displayBoolean(datapath.data_path_configured)),
-			row(_('Service ready'), displayBoolean(datapath.service_ready)),
+			/* On EPON the OAM agent publishes this sysfs flag from the CTC LOID
+			 * authentication result, not from service GEM provisioning. */
+			row(_('CTC LOID authentication'), displayBoolean(datapath.service_ready)),
 			row(_('Upstream burst transmitter ready'), displayBoolean(registration.upstream_tx_armed))
 		);
 		details = [
@@ -450,8 +533,8 @@ function renderLine(item) {
 			row(_('ONU state'), displayOnuState(registration.onu_state)),
 			row(_('ONU-ID'), registration.onu_id_valid === true ? registration.onu_id : _('Not assigned')),
 			row(_('Kernel data path configured'), displayBoolean(datapath.data_path_configured)),
-			row(_('Service ready'), displayBoolean(datapath.service_ready)),
-			row(_('Upstream burst transmitter ready'), displayBoolean(registration.upstream_tx_armed))
+			row(_('Service ready (GEM)'), displayBoolean(datapath.service_ready)),
+			row(_('Upstream TX gate armed'), displayBoolean(registration.upstream_tx_armed))
 		);
 		details = [
 			row(_('Receiver activation count'), counters.rx_start_count),
@@ -513,18 +596,36 @@ function renderLine(item) {
 			row(_('Deferred Discovery Gates'), displayOptional(registration, 'epon_tx_deferrals')),
 			row(_('Re-registrations'), displayOptional(registration, 'epon_reregisters')),
 			row(_('De-registrations'), displayOptional(registration, 'epon_deregisters')),
-			row(_('Registered duration'), displayOptionalDuration(registration, 'epon_registered_ms')),
-			row(_('Last registration duration'), displayOptionalDuration(registration, 'epon_last_registered_ms')),
+			row(_('Registered duration'), displayOptionalDuration(registration,
+				'epon_registered_ms', _('Not registered'))),
+			row(_('Last registration duration'), displayOptionalDuration(registration,
+				'epon_last_registered_ms', _('Never registered'))),
 			row(_('Last register status'), displayOptionalHex(registration, 'epon_last_register_status')),
 			row(_('Last MAC event'), displayOptional(registration, 'epon_last_mac_event')),
 			row(_('Registered at least once'), displayOptionalBoolean(registration, 'epon_ever_registered')),
-			row(_('Re-open pending'), displayOptionalBoolean(registration, 'epon_reopen_pending'))
+			row(_('Re-open pending'), displayOptionalBoolean(registration, 'epon_reopen_pending')),
+			row(_('MPCP sync time (OLT)'), displayOptionalHex(registration, 'epon_sync_time')),
+			row(_('LLID channel'), displayOptional(registration, 'epon_channel')),
+			row(_('Discovery Gate seen'), displayOptionalBoolean(registration, 'epon_discovery_seen')),
+			row(_('Discovery retries'), displayOptional(registration, 'epon_discovery_retry')),
+			row(_('Unanswered Register Requests'), displayOptional(registration, 'epon_unanswered_requests')),
+			row(_('Consecutive grant timeouts'), displayOptional(registration, 'epon_registered_timeout_streak')),
+			row(_('Re-open owns the line'), displayOptionalBoolean(registration, 'epon_reopen_holding')),
+			row(_('Re-open cooldown remaining'), displayOptionalDuration(registration,
+				'epon_reopen_cooldown_ms', _('None'))),
+			row(_('Burst gate dark for'), displayOptionalDuration(registration,
+				'epon_tx_dark_ms', _('Not dark'))),
+			row(_('Registration deny silence'), displayOptionalDuration(registration,
+				'epon_denied_ms', _('None'))),
+			row(_('MPCP frames received'), displayOptional(registration, 'epon_rx_mpcp')),
+			row(_('MPCP frames transmitted'), displayOptional(registration, 'epon_tx_mpcp')),
+			row(_('OAM frames received'), displayOptional(registration, 'epon_rx_oam'))
 		], key('epon-registration')));
 	} else {
 		nodes.push(detailsTable(_('ITU-T PON registration and encryption diagnostics'), [
 			row(_('PLOAMd accepted'), displayOptional(registration, 'itu_ploamd_accepted')),
 			row(_('PLOAMd rejected'), displayOptional(registration, 'itu_ploamd_rejected')),
-			row(_('Encryption active'), displayOptionalBoolean(registration, 'crypto_active')),
+			row(_('Encryption state available'), displayOptionalBoolean(registration, 'crypto_active')),
 			row(_('Default PLOAM integrity key programmed'),
 				displayCryptoValue(registration, 'crypto_default_ik_programmed', 'bool')),
 			row(_('Activation keys programmed'),
@@ -544,36 +645,58 @@ function renderLine(item) {
 function renderOmci(item) {
 	var values = item.values;
 	var title = _('OMCI: %s (%s)').format(item.section['.name'], item.section.device || '-');
+	var key = function(suffix) { return item.section['.name'] + '-' + suffix; };
 
 	if (item.error)
-		return statusTable(title, [ row(_('Error'), item.error) ]);
-	return statusTable(title, [
-		row(_('OMCI channel online'), displayBoolean(values.channel_available)),
-		row(_('LOID configured locally'), displayBoolean(values.loid_configured)),
-		row(_('LOID authentication'), displayAuthentication(values.authentication_meaning)),
-		row(_('OLT vendor ID'), values.olt_vendor_id),
-		row(_('OLT equipment ID'), values.olt_equipment_id),
-		row(_('OLT version'), values.olt_version),
-		row(_('Data path state'), displayBackendState(values.backend_state)),
-		row(_('Active Alloc-ID'), values.active_alloc_id),
-		row(_('Active GEM-ID'), values.active_gem_id),
-		row(_('OMCI VLAN IDs'), displayOmciVlanIds(values)),
-		row(_('Multicast downstream VLAN IDs'), displayMulticastVlanIds(values)),
-		row(_('IGMP upstream tag action'), displayIgmpTagControl(values)),
-		row(_('IGMP upstream VLAN IDs'), displayIgmpUpstreamVlanIds(values)),
-		row(_('OLT broadcast keys'), displayBroadcastKeys(values)),
-		row(_('Received OMCI messages'), values.rx_messages),
-		row(_('OMCI parse errors'), values.parse_errors)
-	]);
+		return [ statusTable(title, [ row(_('Error'), item.error) ]) ];
+	return [
+		statusTable(title, [
+			row(_('OMCI channel online'), displayBoolean(values.channel_available)),
+			row(_('LOID configured locally'), displayBoolean(values.loid_configured)),
+			row(_('LOID authentication'), displayAuthentication(values.authentication_meaning)),
+			row(_('LOID authentication status'), displayOptionalCode(values.authentication_status)),
+			row(_('OLT vendor ID'), displayOptionalScalar(values.olt_vendor_id,
+				null, _('Not reported'))),
+			row(_('OLT equipment ID'), displayOptionalScalar(values.olt_equipment_id,
+				null, _('Not reported'))),
+			row(_('OLT version'), displayOptionalScalar(values.olt_version,
+				null, _('Not reported'))),
+			row(_('Data path state'), displayBackendState(values.backend_state)),
+			row(_('Active Alloc-ID'), displayOptionalScalar(values.active_alloc_id,
+				null, _('Not assigned'))),
+			row(_('Active GEM-ID'), displayOptionalScalar(values.active_gem_id,
+				null, _('Not assigned'))),
+			row(_('All VLANs on the data path'), displayBoolean(values.data_path_all_vlans)),
+			row(_('OMCI VLAN IDs'), displayOmciVlanIds(values)),
+			row(_('Multicast downstream VLAN IDs'), displayMulticastVlanIds(values)),
+			row(_('IGMP upstream tag action'), displayIgmpTagControl(values)),
+			row(_('IGMP upstream VLAN IDs'), displayIgmpUpstreamVlanIds(values)),
+			row(_('OLT broadcast keys'), displayBroadcastKeys(values)),
+			row(_('Last OMCI transaction'), displayOmciTransaction(values.last_transaction)),
+			row(_('Backend error'), displayOptionalScalar(values.backend_error)),
+			row(_('Received OMCI messages'), values.rx_messages),
+			row(_('Transmitted OMCI messages'), values.tx_messages),
+			row(_('OMCI parse errors'), values.parse_errors),
+			row(_('Recorded OMCI events'), values.event_sequence)
+		]),
+		detailsTable(_('OMCI MIB provisioning counts'), [
+			row(_('T-CONTs provisioned'), values.tcont_count),
+			row(_('GEM ports provisioned'), values.gem_port_count),
+			row(_('GEM interworking termination points'), values.gem_iwtp_count),
+			row(_('VLAN tagging rules'), values.vlan_rule_count),
+			row(_('Data path candidates'), values.data_path_candidate_count)
+		], key('omci-mib'))
+	];
 }
 
 function renderOam(item) {
 	var values = item.values;
 	var title = _('EPON OAM: %s (%s)').format(item.section['.name'], item.section.device || '-');
-	var rows;
+	var key = function(suffix) { return item.section['.name'] + '-' + suffix; };
+	var rows, frames, details, identity;
 
 	if (item.error)
-		return statusTable(title, [ row(_('Error'), item.error) ]);
+		return [ statusTable(title, [ row(_('Error'), item.error) ]) ];
 	rows = [
 		row(_('LLID OAM channel online'), displayBoolean(values.channel_available)),
 		row(_('IEEE OAM discovery completed'),
@@ -585,21 +708,64 @@ function renderOam(item) {
 		rows.push(
 			row(_('CTC discovery'), displayCtcDiscovery(values.ctc_discovery_state)),
 			row(_('CTC version'), values.ctc_version == null ?
-				_('Not negotiated') : '0x' + Number(values.ctc_version).toString(16)),
+				_('Not negotiated') : hexCode(values.ctc_version, 2)),
 			row(_('PON MAC used in ONU SN'), values.source_mac),
 			row(_('CTC ONU SN (0xC7/0x0001)'), displayWireBytes(values.onu_sn)),
 			row(_('LOID sent in authentication'), displayWireBytes(values.loid_sent)),
 			row(_('LOID configured locally'), displayBoolean(values.loid_configured)),
 			row(_('LOID authentication'), displayAuthentication(values.authentication_status)),
+			row(_('CTC authentication failure code'),
+				displayOptionalCode(values.authentication_failure)),
 			row(_('CTC VLAN mode'), displayVlanMode(values.vlan_mode)),
+			row(_('CTC VLAN configuration object'),
+				displayOptionalCode(values.vlan_object)),
 			row(_('CTC VLAN IDs'), displayVlanIds(values))
 		);
 	}
 	rows.push(
 		row(_('Received OAM messages'), values.rx_messages),
-		row(_('OAM parse errors'), values.parse_errors)
+		row(_('Transmitted OAM messages'), values.tx_messages),
+		row(_('OAM parse errors'), values.parse_errors),
+		row(_('Recorded OAM events'), values.event_sequence)
 	);
-	return statusTable(title, rows);
+
+	frames = [
+		row(_('Information OAMPDUs received'), values.information_rx),
+		row(_('Event Notification OAMPDUs received'), values.event_rx),
+		row(_('Organization Specific OAMPDUs received'), values.organization_rx),
+		row(_('Last OAM code received'), displayOptionalCode(values.last_code))
+	];
+	if (values.operator === 'ctc')
+		frames.push(
+			row(_('CTC GET requests'), values.ctc_get_requests),
+			row(_('CTC SET requests'), values.ctc_set_requests),
+			row(_('CTC unsupported requests'), values.ctc_unsupported_requests)
+		);
+	details = [ detailsTable(_('OAM frame counters'), frames, key('oam-frames')) ];
+
+	if (values.operator === 'ctc') {
+		identity = values.onu_identity || {};
+		details.push(detailsTable(_('CTC ONU identity (0xC7)'), [
+			row(_('Vendor ID'), displayIdentityField(identity, 'vendor_id')),
+			row(_('Model'), displayIdentityField(identity, 'model')),
+			row(_('Equipment ID'), displayIdentityField(identity, 'equipment_id')),
+			row(_('Hardware version'), displayIdentityField(identity, 'hardware_version')),
+			row(_('Software version'), displayIdentityField(identity, 'software_version')),
+			row(_('Firmware version'), displayIdentityField(identity, 'firmware_version')),
+			row(_('Chipset ID'), displayIdentityField(identity, 'chipset_id')),
+			row(_('GE port count'), displayIdentityField(identity, 'ge_ports'))
+		], key('oam-identity')));
+	}
+
+	return [ statusTable(title, rows) ].concat(details);
+}
+
+/* A renderer may return a single table or a main table plus detail tables. */
+function appendNodes(nodes, rendered) {
+	if (Array.isArray(rendered))
+		rendered.forEach(function(node) { nodes.push(node); });
+	else
+		nodes.push(rendered);
 }
 
 function renderStatus(data) {
@@ -610,15 +776,15 @@ function renderStatus(data) {
 		var rendered = renderLine(item);
 
 		activeModes[item.section['.name']] = rendered.mode;
-		rendered.nodes.forEach(function(node) { nodes.push(node); });
+		appendNodes(nodes, rendered.nodes);
 	});
 	data.omci.forEach(function(item) {
 		if (!isEponMode(activeModes[item.section.line || '']))
-			nodes.push(renderOmci(item));
+			appendNodes(nodes, renderOmci(item));
 	});
 	data.oam.forEach(function(item) {
 		if (isEponMode(activeModes[item.section.line || '']))
-			nodes.push(renderOam(item));
+			appendNodes(nodes, renderOam(item));
 	});
 
 	if (nodes.length === 0)

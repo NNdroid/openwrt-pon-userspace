@@ -2,24 +2,33 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 # The first ndo_open() of a PON line after boot can leave the EPON MAC in an
-# LLID epoch that the OLT never grants upstream slots for: the line registers,
-# misses every grant one second later, and then loops forever. Measured on
-# this hardware, the driver's own recovery ladder cannot repair that state
-# even though it power-cycles the optics and resets the MAC - controller_stop()
-# performs synchronize_irq() before taking state_lock, which is impossible
-# from inside link_work(), so the ladder never reproduces a real close/open.
+# LLID epoch the OLT never grants upstream slots for: a dark module still wins
+# an LLID and loses the grant about one second later.
 #
-# A plain interface down/up does reproduce it, so re-open the line once after
-# the first open whenever the carrier keeps flapping. The carrier follows the
-# LLID registration: it goes up when the driver reports a registered line and
-# drops on the next MPCP timeout, so a wedged line flaps every few seconds
-# while a healthy one holds it.
+# The driver owns recovery. Its link_work watchdog, MPCP timeout ladder and
+# reopen_work perform a real dev_close()/dev_open() (controller_stop() runs
+# synchronize_irq() before taking state_lock, which link_work cannot do), and
+# the frontend re-prepare is what actually relights a cold EN7572.
+#
+# Carrier no longer follows each LLID grant: the stable-registration fix only
+# raises it after the LLID survives 2 s, so dead LLIDs produce no carrier edge
+# at all. carrier=0 therefore cannot be read as a flap - during a cold boot it
+# usually just means the kernel is still recovering. A down/up from here calls
+# controller_start(), which clears the driver's queued re-open, so only
+# intervene on a genuine flap (carrier rose, then fell), or once, very late,
+# as a last resort.
 
 . /lib/functions.sh
 
 LOG_TAG=pon-reopen
 SETTLE_SECONDS=3
-CARRIER_WAIT_SECONDS=30
+# Long enough for the driver's 5 s dark watchdog plus its 5 s / 30 s re-open
+# backoffs and one frontend re-prepare. A shorter window made this script
+# down/up the line twice while the kernel was still relighting the module.
+CARRIER_WAIT_SECONDS=90
+# A real flap is observed immediately after a re-open; no need to wait the
+# full cold-boot recovery window again on every attempt.
+REOPEN_WAIT_SECONDS=30
 VERIFY_SECONDS=12
 MAX_ATTEMPTS=2
 
@@ -42,10 +51,12 @@ carrier_stable() {
 	return 0
 }
 
-# Waits for the first LLID registration, which is what raises the carrier.
+# Waits for a registration stable enough to raise carrier. Returns 1 when the
+# line never came up - that is a pending recovery, not a flap.
 wait_for_carrier() {
 	local device="$1"
-	local deadline=$(( $(date +%s) + CARRIER_WAIT_SECONDS ))
+	local wait_seconds="${2:-$CARRIER_WAIT_SECONDS}"
+	local deadline=$(( $(date +%s) + wait_seconds ))
 
 	while [ "$(date +%s)" -lt "$deadline" ]; do
 		[ "$(cat "/sys/class/net/$device/carrier" 2>/dev/null)" = "1" ] &&
@@ -99,17 +110,30 @@ reopen_section() {
 	}
 
 	sleep "$SETTLE_SECONDS"
-	wait_for_carrier "$device"
+	if ! wait_for_carrier "$device"; then
+		# No carrier edge at all means dead LLIDs or a still-dark module,
+		# not a flap. One late re-open is a last-resort re-prepare; doing it
+		# early would cancel the driver's queued re-open and restart the
+		# epoch it was about to fix.
+		log "$device: no stable carrier after ${CARRIER_WAIT_SECONDS}s; one last-resort re-open, then leaving the kernel to recover"
+		reopen_line "$device" || log "$device: last-resort re-open failed"
+		return 0
+	fi
 	if carrier_stable "$device"; then
 		log "$device: carrier is stable, leaving the first open alone"
 		return 0
 	fi
 
+	# Carrier rose and fell again: this is the real flap the service exists
+	# to break.
 	while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
 		attempt=$((attempt + 1))
 		log "$device: carrier is flapping, re-opening the line (attempt $attempt)"
 		reopen_line "$device" || log "$device: re-opening the line failed"
-		wait_for_carrier "$device"
+		if ! wait_for_carrier "$device" "$REOPEN_WAIT_SECONDS"; then
+			log "$device: no stable carrier after attempt $attempt; leaving the kernel to recover"
+			return 0
+		fi
 		if carrier_stable "$device"; then
 			log "$device: line is stable after re-opening"
 			return 0

@@ -43,9 +43,6 @@ msgstr "诊断"
 msgid "Download diagnostic package"
 msgstr "下载诊断包"
 
-msgid "Debug data is kept in RAM and limited to 20 MB. Applying the setting starts or stops collection."
-msgstr "调试数据保存在内存中，最多占用 20 MB；应用设置后开始或停止收集。"
-
 msgid "Enabling starts packet capture before a full PON restart. Disabling stops capture."
 msgstr "开启时先启动抓包，再完整重启 PON；关闭时停止抓包。"
 
@@ -76,14 +73,8 @@ msgstr "无法重启 PON：%s"
 msgid "Board serial number"
 msgstr "板载序列号"
 
-msgid "Registration changes take effect on the next PON activation or interface restart."
-msgstr "注册参数在下次 PON 激活或接口重启时生效。"
-
 msgid "Configuration"
 msgstr "配置"
-
-msgid "Data path error"
-msgstr "数据通路错误"
 
 msgid "Data path state"
 msgstr "数据通路状态"
@@ -109,14 +100,8 @@ msgstr "应用映射失败"
 msgid "Failed to clear mapping"
 msgstr "清除映射失败"
 
-msgid "GEM Interworking TP entries"
-msgstr "GEM Interworking TP 条目"
-
-msgid "GEM Port Network CTP entries"
-msgstr "GEM Port Network CTP 条目"
-
-msgid "Grant access to PON identity configuration"
-msgstr "允许访问 PON 身份配置"
+msgid "Grant access to PON configuration and board data"
+msgstr "允许访问 PON 配置与板级数据"
 
 msgid "Hardware version"
 msgstr "硬件版本"
@@ -165,9 +150,6 @@ msgstr "该 LOID 已被其他 ONU 认证"
 
 msgid "Reserved authentication status"
 msgstr "保留的认证状态"
-
-msgid "LOID configured"
-msgstr "已配置 LOID"
 
 msgid "LOID password"
 msgstr "LOID 密码"
@@ -245,14 +227,8 @@ msgstr "OMCI VLAN ID"
 msgid "Any VLAN (transparent)"
 msgstr "任意 VLAN（透明传输）"
 
-msgid "OMCI VLAN rules"
-msgstr "OMCI VLAN 规则数"
-
 msgid "OMCI channel online"
 msgstr "OMCI 通道在线"
-
-msgid "OMCI instance: %s (%s)"
-msgstr "OMCI 实例：%s（%s）"
 
 msgid "OMCI interface"
 msgstr "OMCI 接口"
@@ -278,9 +254,6 @@ msgstr "只能使用可打印 ASCII 字符。"
 msgid "Operator ID"
 msgstr "运营商 ID"
 
-msgid "Operator-specific result"
-msgstr "运营商自定义结果"
-
 msgid "Optional; sent as all zeros when empty."
 msgstr "可选；留空时按全零上报。"
 
@@ -302,54 +275,6 @@ msgstr "PON 线路：%s（%s）"
 msgid "PON status"
 msgstr "PON 状态"
 
-msgid "QDMA TX packets submitted"
-msgstr "QDMA 已提交发送报文"
-
-msgid "QDMA TX packets completed"
-msgstr "QDMA 已完成发送报文"
-
-msgid "QDMA TX packets dropped"
-msgstr "QDMA 发送丢包"
-
-msgid "QDMA TX mapping misses"
-msgstr "QDMA 发送映射缺失"
-
-msgid "QDMA RX packets delivered"
-msgstr "QDMA 已交付接收报文"
-
-msgid "QDMA RX descriptors dropped"
-msgstr "QDMA 接收描述符丢弃"
-
-msgid "Applied data path entries"
-msgstr "已应用数据路径条目"
-
-msgid "Applied data paths"
-msgstr "已应用数据路径"
-
-msgid "PON data path diagnostics"
-msgstr "PON 数据路径诊断"
-
-msgid "Current registration lifetime"
-msgstr "当前注册持续时间"
-
-msgid "Previous registration lifetime"
-msgstr "上次注册持续时间"
-
-msgid "Last Register status"
-msgstr "最近 Register 状态"
-
-msgid "Last MAC error LLID status"
-msgstr "最近 MAC 异常时 LLID 状态"
-
-msgid "Last MAC error sync time"
-msgstr "最近 MAC 异常时同步时间"
-
-msgid "Last MAC error TX timing"
-msgstr "最近 MAC 异常时发送时序"
-
-msgid "Last MAC error TX MPCP counters"
-msgstr "最近 MAC 异常时发送 MPCP 计数"
-
 msgid "Received OMCI messages"
 msgstr "OMCI 接收报文"
 
@@ -365,23 +290,14 @@ msgstr "光前端温度"
 msgid "Registration-ID"
 msgstr "Registration-ID"
 
-msgid "Rejected"
-msgstr "认证失败"
-
 msgid "Serial number (SN)"
 msgstr "序列号（SN）"
 
 msgid "Software version"
 msgstr "软件版本"
 
-msgid "Service ready"
-msgstr "业务已就绪"
-
 msgid "Status"
 msgstr "状态"
-
-msgid "T-CONT entries"
-msgstr "T-CONT 条目"
 
 msgid "The value must contain between %d and %d bytes."
 msgstr "该值必须为 %d 到 %d 字节。"
@@ -395,26 +311,11 @@ msgstr "OMCI 发送报文"
 msgid "Unable to read OMCI status"
 msgstr "无法读取 OMCI 状态"
 
-msgid "Unable to read PON status"
-msgstr "无法读取 PON 状态"
-
 msgid "Upstream PLOAMu transmitted"
 msgstr "MAC 发送 PLOAMu"
 
-msgid "Automatic ACK PLOAMu transmitted"
-msgstr "其中自动 ACK PLOAMu"
-
-msgid "Downstream XGTC frames"
-msgstr "MAC 接收 XGTC 帧"
-
-msgid "Downstream XGEM frames"
-msgstr "MAC 接收 XGEM 帧"
-
 msgid "Upstream bursts transmitted"
 msgstr "MAC 发送上行突发"
-
-msgid "Upstream XGEM frames"
-msgstr "MAC 发送 XGEM 帧"
 
 msgid "Upstream burst transmitter ready"
 msgstr "上行突发发送已就绪"
@@ -453,20 +354,11 @@ msgctxt "PON status boolean"
 msgid "Yes"
 msgstr "是"
 
-msgid "EPON line: %s (%s)"
-msgstr "EPON 线路：%s（%s）"
-
 msgid "PCS synchronized"
 msgstr "PCS 已同步"
 
 msgid "MPCP state"
 msgstr "MPCP 状态"
-
-msgid "LLID"
-msgstr "LLID"
-
-msgid "LLID data path configured"
-msgstr "LLID 数据通路已配置"
 
 msgid "Discovery Gates received"
 msgstr "收到 Discovery Gate"
@@ -480,35 +372,14 @@ msgstr "收到 Register 报文"
 msgid "Register ACKs transmitted"
 msgstr "发送 Register ACK"
 
-msgid "Re-register messages"
-msgstr "Re-register 报文"
-
-msgid "Deregister messages"
-msgstr "Deregister 报文"
-
 msgid "Register NACKs"
 msgstr "Register NACK"
-
-msgid "NACK silent time remaining"
-msgstr "NACK 静默剩余时间"
 
 msgid "MPCP timeouts"
 msgstr "MPCP 超时"
 
-msgid "Received MPCP frames"
-msgstr "接收 MPCP 帧"
-
-msgid "Transmitted MPCP frames"
-msgstr "发送 MPCP 帧"
-
-msgid "Received OAM frames"
-msgstr "接收 OAM 帧"
-
 msgid "MAC error conditions"
 msgstr "MAC 错误条件"
-
-msgid "Last MAC error"
-msgstr "最近一次 MAC 错误"
 
 msgid "Waiting for CTC discovery"
 msgstr "等待 CTC 发现"
@@ -534,9 +405,6 @@ msgstr "N:1 聚合"
 msgid "Trunk"
 msgstr "Trunk"
 
-msgid "Not requested"
-msgstr "OLT 未请求"
-
 msgid "Pending"
 msgstr "等待结果"
 
@@ -545,12 +413,6 @@ msgstr "无法读取 OAM 状态"
 
 msgid "Invalid OAM status response"
 msgstr "OAM 状态响应格式无效"
-
-msgid "OAM instance: %s (%s)"
-msgstr "OAM 实例：%s（%s）"
-
-msgid "OAM channel online"
-msgstr "OAM 通道在线"
 
 msgid "OAM profile"
 msgstr "OAM 协议"
@@ -579,9 +441,6 @@ msgstr "OAM 发送报文"
 msgid "OAM parse errors"
 msgstr "OAM 解析错误"
 
-msgid "Information messages"
-msgstr "Information 报文"
-
 msgid "CTC GET requests"
 msgstr "CTC GET 请求"
 
@@ -608,9 +467,6 @@ msgstr "OAM 接口"
 
 msgid "IEEE 802.3ah + CTC"
 msgstr "IEEE 802.3ah + CTC"
-
-msgid "ONU model"
-msgstr "ONU 型号"
 
 msgid "ONU short model"
 msgstr "ONU 短型号"
@@ -662,9 +518,6 @@ msgstr "配置状态"
 
 msgid "Not active"
 msgstr "未运行"
-
-msgid "Not available"
-msgstr "无数据"
 
 msgid "Line stopped"
 msgstr "线路已停止"
@@ -732,12 +585,6 @@ msgstr "已同步"
 msgid "Re-synchronizing"
 msgstr "正在重新同步"
 
-msgid "Completed"
-msgstr "已完成"
-
-msgid "Waiting for Information PDU"
-msgstr "等待 Information PDU"
-
 msgid "OLT did not request authentication"
 msgstr "OLT 未请求认证"
 
@@ -750,9 +597,6 @@ msgstr "尚未下发"
 msgid "Read failed"
 msgstr "读取失败"
 
-msgid "Read failed."
-msgstr "读取失败。"
-
 msgid "Line mode and registration identity take effect after the PON interface restarts."
 msgstr "线路模式和注册身份在 PON 接口重启后生效。"
 
@@ -764,12 +608,6 @@ msgstr "ITU-T PON 线路计数与诊断"
 
 msgid "Last start error"
 msgstr "最近启动错误"
-
-msgid "PMA calibration stage"
-msgstr "PMA 校准阶段"
-
-msgid "PMA calibration error"
-msgstr "PMA 校准错误"
 
 msgid "Receiver activation count"
 msgstr "接收启动次数"
@@ -801,36 +639,6 @@ msgstr "下行 GEM 帧"
 msgid "Upstream GEM frames"
 msgstr "上行 GEM 帧"
 
-msgid "Register Requests transmitted by MAC"
-msgstr "MAC 发送 Register Request"
-
-msgid "Register ACKs transmitted by MAC"
-msgstr "MAC 发送 Register ACK"
-
-msgid "OAM frames transmitted by MAC"
-msgstr "MAC 发送 OAM 帧"
-
-msgid "MPCP frames received by MAC"
-msgstr "MAC 接收 MPCP 帧"
-
-msgid "OAM frames received by MAC"
-msgstr "MAC 接收 OAM 帧"
-
-msgid "Last MAC error bitmap"
-msgstr "最近 MAC 错误位图"
-
-msgid "Calibration A0 valid"
-msgstr "A0 校准有效"
-
-msgid "Calibration A2 valid"
-msgstr "A2 校准有效"
-
-msgid "TX_DISABLE asserted"
-msgstr "TX_DISABLE 已拉高"
-
-msgid "Frontend burst TX"
-msgstr "光前端突发发送"
-
 msgid "LLID0"
 msgstr "LLID0"
 
@@ -843,9 +651,6 @@ msgstr "GTC 状态"
 msgid "OMCI: %s (%s)"
 msgstr "OMCI：%s（%s）"
 
-msgid "OMCI counters"
-msgstr "OMCI 计数"
-
 msgid "LOID configured locally"
 msgstr "本机已配置 LOID"
 
@@ -855,9 +660,6 @@ msgstr "EPON OAM：%s（%s）"
 msgid "LLID OAM channel online"
 msgstr "LLID OAM 通道在线"
 
-msgid "IEEE OAM discovery"
-msgstr "IEEE OAM 发现"
-
 msgid "IEEE OAM discovery completed"
 msgstr "IEEE OAM 发现已完成"
 
@@ -866,9 +668,6 @@ msgstr "配置的 OAM 协议"
 
 msgid "IEEE 802.3ah"
 msgstr "IEEE 802.3ah"
-
-msgid "EPON OAM counters"
-msgstr "EPON OAM 计数"
 
 msgid "Multicast downstream VLAN IDs"
 msgstr "组播下行 VLAN ID"
@@ -1140,8 +939,8 @@ msgstr "PLOAMd 已接受"
 msgid "PLOAMd rejected"
 msgstr "PLOAMd 已拒绝"
 
-msgid "Encryption active"
-msgstr "加密已启用"
+msgid "Encryption state available"
+msgstr "加密状态可读"
 
 msgid "Default PLOAM integrity key programmed"
 msgstr "默认 PLOAM 完整性密钥已写入"
@@ -1157,3 +956,150 @@ msgstr "密钥交换错误数"
 
 msgid "Current key index"
 msgstr "当前密钥索引"
+
+msgid "All VLANs on the data path"
+msgstr "数据路径允许所有 VLAN"
+
+msgid "Backend error"
+msgstr "后端错误"
+
+msgid "Burst gate dark for"
+msgstr "突发发射门暗态已持续"
+
+msgid "CTC LOID authentication"
+msgstr "CTC LOID 认证"
+
+msgid "CTC ONU identity (0xC7)"
+msgstr "CTC ONU 身份信息（0xC7）"
+
+msgid "CTC VLAN configuration object"
+msgstr "CTC VLAN 配置对象"
+
+msgid "CTC authentication failure code"
+msgstr "CTC 认证失败码"
+
+msgid "Carrier published"
+msgstr "Carrier 已置位"
+
+msgid "Carrier state"
+msgstr "Carrier 状态"
+
+msgid "Confirming registration (carrier pending)"
+msgstr "注册确认中（carrier 待置位）"
+
+msgid "Consecutive grant timeouts"
+msgstr "连续授权超时次数"
+
+msgid "Data path candidates"
+msgstr "数据路径候选数"
+
+msgid "Discovery Gate seen"
+msgstr "已收到 Discovery Gate"
+
+msgid "Discovery retries"
+msgstr "Discovery 重试次数"
+
+msgid "Event Notification OAMPDUs received"
+msgstr "收到的事件通知 OAMPDU 数"
+
+msgid "GE port count"
+msgstr "GE 端口数"
+
+msgid "GEM interworking termination points"
+msgstr "GEM 互通终结点数"
+
+msgid "GEM ports provisioned"
+msgstr "已配置 GEM 端口数"
+
+msgid "Information OAMPDUs received"
+msgstr "收到的信息 OAMPDU 数"
+
+msgid "LLID channel"
+msgstr "LLID 通道号"
+
+msgid "LOID authentication status"
+msgstr "LOID 认证状态码"
+
+msgid "Last OAM code received"
+msgstr "最近收到的 OAM 编码"
+
+msgid "Last OMCI transaction"
+msgstr "最近一次 OMCI 事务"
+
+msgid "MPCP frames received"
+msgstr "收到的 MPCP 帧数"
+
+msgid "MPCP frames transmitted"
+msgstr "发送的 MPCP 帧数"
+
+msgid "MPCP sync time (OLT)"
+msgstr "MPCP 同步时间（OLT）"
+
+msgid "Model"
+msgstr "型号"
+
+msgid "Never registered"
+msgstr "从未注册成功"
+
+msgid "Not dark"
+msgstr "未处于暗态"
+
+msgid "Not published"
+msgstr "Carrier 未置位"
+
+msgid "Not registered"
+msgstr "当前未注册"
+
+msgid "Not sent by this CTC version: %s"
+msgstr "当前 CTC 版本不发送该字段：%s"
+
+msgid "OAM frame counters"
+msgstr "OAM 帧分类计数"
+
+msgid "OAM frames received"
+msgstr "收到的 OAM 帧数"
+
+msgid "OMCI MIB provisioning counts"
+msgstr "OMCI MIB 配置对象计数"
+
+msgid "On the wire: %s"
+msgstr "实际发送字节：%s"
+
+msgid "Organization Specific OAMPDUs received"
+msgstr "收到的组织扩展 OAMPDU 数"
+
+msgid "Re-open cooldown remaining"
+msgstr "重开冷却剩余时间"
+
+msgid "Re-open owns the line"
+msgstr "重开流程正占用线路"
+
+msgid "Recorded OAM events"
+msgstr "已记录 OAM 事件数"
+
+msgid "Recorded OMCI events"
+msgstr "已记录 OMCI 事件数"
+
+msgid "Registration deny silence"
+msgstr "注册拒绝静默剩余时间"
+
+msgid "Rejected by the OLT"
+msgstr "被 OLT 拒绝"
+
+msgid "Service ready (GEM)"
+msgstr "业务就绪（GEM）"
+
+msgid "T-CONTs provisioned"
+msgstr "已配置 T-CONT 数"
+
+msgid "TCI %s, class %s, entity %s, action %s, mask %s, result %s"
+msgstr "TCI %s，类别 %s，实体 %s，动作 %s，属性掩码 %s，结果 %s"
+
+msgid "Unanswered Register Requests"
+msgstr "未获响应的 Register Request 数"
+
+msgid "Upstream TX gate armed"
+msgstr "上行 TX 门控已就绪"
+
+msgid "VLAN tagging rules"
+msgstr "VLAN 标记规则数"
