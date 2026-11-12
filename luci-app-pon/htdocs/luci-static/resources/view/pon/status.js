@@ -56,6 +56,61 @@ function displayFrontendMetric(frontend, field, unit) {
 	return Number(frontend[field]).toFixed(2) + ' ' + unit;
 }
 
+/*
+ * The driver omits mode-specific and optional attributes instead of sending
+ * placeholders, so a missing key means "not supported by this line/driver",
+ * while undefined values inside a present key are handled by displayBoolean.
+ */
+function displayOptional(obj, field, unit) {
+	if (!obj || !Object.prototype.hasOwnProperty.call(obj, field))
+		return _('Not supported');
+	if (obj[field] === '')
+		return _('None');
+	return String(obj[field]) + (unit ? ' ' + unit : '');
+}
+
+function displayOptionalBoolean(obj, field) {
+	if (!obj || !Object.prototype.hasOwnProperty.call(obj, field))
+		return _('Not supported');
+	return displayBoolean(obj[field]);
+}
+
+function displayOptionalHex(obj, field) {
+	if (!obj || !Object.prototype.hasOwnProperty.call(obj, field))
+		return _('Not supported');
+	return '0x' + Number(obj[field]).toString(16);
+}
+
+function displayOptionalDuration(obj, field) {
+	if (!obj || !Object.prototype.hasOwnProperty.call(obj, field))
+		return _('Not supported');
+	return (Number(obj[field]) / 1000).toFixed(1) + ' s';
+}
+
+function displayStartError(value) {
+	if (value == null || Number(value) === 0)
+		return _('None');
+	return _('Error %s').format(value);
+}
+
+function displayPcsValue(line, field, kind) {
+	if (line.pcs_available === false)
+		return _('Not applicable');
+	if (kind === 'bool')
+		return displayOptionalBoolean(line, field);
+	return displayOptional(line, field);
+}
+
+function displayCryptoValue(registration, field, kind) {
+	if (registration.crypto_active === false)
+		return _('Not applicable');
+	if (kind === 'bool')
+		return displayOptionalBoolean(registration, field);
+	if (kind === 'hex')
+		return displayOptionalHex(registration, field);
+	return displayOptional(registration, field);
+}
+
 function displayLifecycle(value) {
 	switch (value) {
 	case 'stopped': return _('Stopped');
@@ -70,6 +125,7 @@ function displayLifecycle(value) {
 }
 
 function displayMpcpState(value) {
+	if (value === 'not-applicable') return _('Not applicable');
 	switch (value) {
 	case 'wait': return _('Waiting for discovery');
 	case 'registering': return _('Waiting for Discovery Gate');
@@ -82,6 +138,7 @@ function displayMpcpState(value) {
 }
 
 function displayOnuState(value) {
+	if (value === 'not-applicable') return _('Not applicable');
 	switch (value) {
 	case 'O1': return _('O1 — Initial');
 	case 'O2_3': return _('O2-3 — Serial number');
@@ -218,12 +275,7 @@ function loadProtocolStatus(section, unavailable, invalid) {
 }
 
 function loadStatus() {
-	var lines = uci.sections('pon', 'xpon'),
-		lineByName = {};
-
-	lines.forEach(function(section) {
-		lineByName[section['.name']] = section;
-	});
+	var lines = uci.sections('pon', 'xpon');
 
 	var lineJobs = lines.map(function(section) {
 		var device = section.device || '';
@@ -253,21 +305,22 @@ function loadStatus() {
 		});
 	});
 
+	/*
+	 * Load every OMCI and OAM section. The active line mode - not the UCI
+	 * configured mode - decides which protocol applies, and renderStatus()
+	 * filters by that active mode. Pre-filtering here made both protocol
+	 * tables vanish while a mode change was pending: the UCI mode has already
+	 * flipped but the line is still running the previous mode.
+	 */
 	return Promise.all([
 		Promise.all(lineJobs),
-			Promise.all(uci.sections('pon', 'omci').filter(function(section) {
-				var line = lineByName[section.line], mode = line ? line.mode || '' : '';
-				return mode.indexOf('epon-') !== 0;
-			}).map(function(section) {
-				return loadProtocolStatus(section,
-					_('Unable to read OMCI status'), _('Invalid OMCI status response'));
-			})),
-			Promise.all(uci.sections('pon', 'oam').filter(function(section) {
-				var line = lineByName[section.line], mode = line ? line.mode || '' : '';
-				return mode.indexOf('epon-') === 0;
-			}).map(function(section) {
-				return loadProtocolStatus(section,
-					_('Unable to read OAM status'), _('Invalid OAM status response'));
+		Promise.all(uci.sections('pon', 'omci').map(function(section) {
+			return loadProtocolStatus(section,
+				_('Unable to read OMCI status'), _('Invalid OMCI status response'));
+		})),
+		Promise.all(uci.sections('pon', 'oam').map(function(section) {
+			return loadProtocolStatus(section,
+				_('Unable to read OAM status'), _('Invalid OAM status response'));
 		}))
 	]).then(function(results) {
 		return { lines: results[0], omci: results[1], oam: results[2] };
@@ -316,12 +369,17 @@ function detailsTable(title, rows, instance) {
 }
 
 function modeRows(mode) {
-	return [
+	var rows = [
 		row(_('Current line mode'), modeLabel(mode.active)),
 		row(_('Configured line mode'), modeLabel(mode.configured)),
 		row(_('Configuration state'), !mode.active ? _('Line stopped') :
 			(mode.pending ? _('Takes effect after interface restart') : _('Applied')))
 	];
+
+	if (mode.pending)
+		rows.push(row(_('Status shown for'),
+			_('Active mode (configuration pending)')));
+	return rows;
 }
 
 function renderLine(item) {
@@ -333,19 +391,34 @@ function renderLine(item) {
 	var mode = getLineModes(item);
 	var title = _('PON line: %s (%s)').format(item.section['.name'], item.section.device || '-');
 	var main = modeRows(mode);
-	var details;
+	var details, nodes, key, calibration;
 
 	if (item.error)
 		return { mode: mode.shown, nodes: [ statusTable(title, [ row(_('Error'), item.error) ]) ] };
+
+	/* Every details table needs its own key so polling restores them individually. */
+	key = function(suffix) { return item.section['.name'] + '-' + suffix; };
+	calibration = ({
+		ready: _('Loaded'), missing: _('Missing'), invalid: _('Invalid format'),
+		'not-required': _('Not required'), unknown: _('Unknown')
+	})[frontend.calibration] || _('Unknown');
+
 	main.push(
 		row(_('Line state'), displayLifecycle(line.lifecycle)),
 		row(_('Optical signal detected'), displayBoolean(line.optical_signal)),
+		row(_('Receiver active'), displayBoolean(line.rx_active)),
 		row(_('Receive optical power'), displayFrontendMetric(
 			frontend, 'rx_power_dbm', 'dBm')),
 		row(_('Transmit optical power'), displayFrontendMetric(
 			frontend, 'tx_power_dbm', 'dBm')),
 		row(_('Optical frontend temperature'), displayFrontendMetric(
-			frontend, 'temperature_celsius', '°C'))
+			frontend, 'temperature_celsius', '°C')),
+		row(_('Optical frontend voltage'), displayFrontendMetric(
+			frontend, 'voltage_volts', 'V')),
+		row(_('Optical frontend TX bias'), displayFrontendMetric(
+			frontend, 'tx_bias_ma', 'mA')),
+		row(_('Optical TX path ready'), frontend.error ?
+			_('Read failed') : displayOptionalBoolean(frontend, 'tx_path_ready'))
 	);
 	if (isEponMode(mode.shown)) {
 		main.push(
@@ -353,11 +426,10 @@ function renderLine(item) {
 			row(_('MPCP state'), displayMpcpState(registration.mpcp_state)),
 			row(_('LLID0'), registration.llid_valid === true ? registration.llid : _('Not assigned')),
 			row(_('LLID0 data path configured'), displayBoolean(datapath.data_path_configured)),
+			row(_('Service ready'), displayBoolean(datapath.service_ready)),
 			row(_('Upstream burst transmitter ready'), displayBoolean(registration.upstream_tx_armed))
 		);
 		details = [
-			row(_('Last start error'), line.last_start_error),
-			row(_('PCS profile'), line.pcs_profile_valid ? line.pcs_profile : _('Not configured')),
 			row(_('Receiver activation count'), counters.rx_start_count),
 			row(_('PCS synchronization losses'), counters.sync_losses),
 			row(_('PCS recovery attempts'), counters.recoveries),
@@ -382,7 +454,6 @@ function renderLine(item) {
 			row(_('Upstream burst transmitter ready'), displayBoolean(registration.upstream_tx_armed))
 		);
 		details = [
-			row(_('Last start error'), line.last_start_error),
 			row(_('Receiver activation count'), counters.rx_start_count),
 			row(_('Line synchronization losses'), counters.sync_losses),
 			row(_('Receiver recovery attempts'), counters.recoveries),
@@ -395,20 +466,79 @@ function renderLine(item) {
 			row(_('Upstream GEM frames'), counters.xgem_tx)
 		];
 	}
-	details.push(
-		row(_('Calibration state'), ({
-			ready: _('Loaded'), missing: _('Missing'), invalid: _('Invalid format'),
-			'not-required': _('Not required'), unknown: _('Unknown')
-		})[frontend.calibration] || _('Unknown')),
-		row(_('Frontend TX gate enabled'), frontend.error ?
-			_('Read failed') : displayBoolean(frontend.tx_gate_enabled))
-	);
 
-	return { mode: mode.shown, nodes: [
+	nodes = [
 		statusTable(title, main),
 		detailsTable(isEponMode(mode.shown) ? _('EPON line counters and diagnostics') :
-			_('ITU-T PON counters and diagnostics'), details, item.section['.name'])
-	] };
+			_('ITU-T PON counters and diagnostics'), details, key('counters')),
+		detailsTable(_('Frontend and line details'), [
+			row(_('Last start error'), displayStartError(line.last_start_error)),
+			row(_('PCS profile'), line.pcs_profile_valid ? line.pcs_profile : _('Not configured')),
+			row(_('Calibration state'), calibration),
+			row(_('Frontend TX gate enabled'), frontend.error ?
+				_('Read failed') : displayBoolean(frontend.tx_gate_enabled)),
+			row(_('Serial number configured'), displayBoolean(registration.serial_configured)),
+			row(_('Registration ID configured'), displayBoolean(registration.registration_id_configured))
+		], key('frontend')),
+		detailsTable(_('PCS receiver diagnostics'), [
+			row(_('PCS status available'), displayOptionalBoolean(line, 'pcs_available')),
+			row(_('PCS signal detected'), displayPcsValue(line, 'pcs_signal_detected', 'bool')),
+			row(_('Frequency detector locked'), displayPcsValue(line, 'pcs_freqdet_locked', 'bool')),
+			row(_('RX ready gate'), displayPcsValue(line, 'pcs_rx_ready_gate', 'bool')),
+			row(_('RX FIFO reset released'), displayPcsValue(line, 'pcs_rx_fifo_reset_released', 'bool')),
+			row(_('Calibration stage'), displayPcsValue(line, 'pcs_calibration_stage')),
+			row(_('Calibration error'), displayPcsValue(line, 'pcs_calibration_error')),
+			row(_('Calibration runs'), displayPcsValue(line, 'pcs_calibration_runs')),
+			row(_('EO gain'), displayPcsValue(line, 'pcs_eo_gain')),
+			row(_('EO peaking'), displayPcsValue(line, 'pcs_eo_peaking')),
+			row(_('EO FOM'), displayPcsValue(line, 'pcs_eo_fom'))
+		], key('pcs')),
+		detailsTable(_('Data path packet counters'), [
+			row(_('TX packets submitted'), displayOptional(datapath, 'tx_packets_submitted')),
+			row(_('TX packets completed'), displayOptional(datapath, 'tx_packets_completed')),
+			row(_('TX packets dropped'), displayOptional(datapath, 'tx_packets_dropped')),
+			row(_('TX packets without mapping'), displayOptional(datapath, 'tx_no_mapping')),
+			row(_('RX packets delivered'), displayOptional(datapath, 'rx_packets_delivered')),
+			row(_('RX descriptor drops'), displayOptional(datapath, 'rx_descriptors_dropped')),
+			row(_('RX CRC errors'), displayOptional(datapath, 'rx_crc_errors'))
+		], key('datapath'))
+	];
+
+	if (isEponMode(mode.shown)) {
+		nodes.push(detailsTable(_('EPON registration diagnostics'), [
+			row(_('Registration epoch'), displayOptional(registration, 'epon_epoch')),
+			row(_('Line re-opens'), displayOptional(registration, 'epon_reopens')),
+			row(_('Re-open attempts'), displayOptional(registration, 'epon_reopen_attempts')),
+			row(_('Re-opens with firmware reload'), displayOptional(registration, 'epon_reopen_reloads')),
+			row(_('Deferred Discovery Gates'), displayOptional(registration, 'epon_tx_deferrals')),
+			row(_('Re-registrations'), displayOptional(registration, 'epon_reregisters')),
+			row(_('De-registrations'), displayOptional(registration, 'epon_deregisters')),
+			row(_('Registered duration'), displayOptionalDuration(registration, 'epon_registered_ms')),
+			row(_('Last registration duration'), displayOptionalDuration(registration, 'epon_last_registered_ms')),
+			row(_('Last register status'), displayOptionalHex(registration, 'epon_last_register_status')),
+			row(_('Last MAC event'), displayOptional(registration, 'epon_last_mac_event')),
+			row(_('Registered at least once'), displayOptionalBoolean(registration, 'epon_ever_registered')),
+			row(_('Re-open pending'), displayOptionalBoolean(registration, 'epon_reopen_pending'))
+		], key('epon-registration')));
+	} else {
+		nodes.push(detailsTable(_('ITU-T PON registration and encryption diagnostics'), [
+			row(_('PLOAMd accepted'), displayOptional(registration, 'itu_ploamd_accepted')),
+			row(_('PLOAMd rejected'), displayOptional(registration, 'itu_ploamd_rejected')),
+			row(_('Encryption active'), displayOptionalBoolean(registration, 'crypto_active')),
+			row(_('Default PLOAM integrity key programmed'),
+				displayCryptoValue(registration, 'crypto_default_ik_programmed', 'bool')),
+			row(_('Activation keys programmed'),
+				displayCryptoValue(registration, 'crypto_activation_keys_programmed', 'bool')),
+			row(_('Key exchange state'),
+				displayCryptoValue(registration, 'crypto_key_exchange_state')),
+			row(_('Key exchange errors'),
+				displayCryptoValue(registration, 'crypto_key_exchange_errors')),
+			row(_('Current key index'),
+				displayCryptoValue(registration, 'crypto_current_key_index', 'hex'))
+		], key('itu-crypto')));
+	}
+
+	return { mode: mode.shown, nodes: nodes };
 }
 
 function renderOmci(item) {

@@ -344,6 +344,12 @@ enum StatusKind {
     U64,
 }
 
+/*
+ * Attribute IDs are decoded as `fields[attr_id - 1]`, so these arrays must
+ * stay in exactly the same order as the enums in airoha-xpon-netlink.h.
+ * Append new fields at the end only; inserting in the middle shifts every
+ * later ID and makes an older/newer driver+ponctl pair decode wrong types.
+ */
 const LINE_FIELDS: &[(&str, StatusKind)] = &[
     ("configured_mode", StatusKind::String),
     ("active_mode", StatusKind::String),
@@ -357,6 +363,17 @@ const LINE_FIELDS: &[(&str, StatusKind)] = &[
     ("pcs_sync", StatusKind::Bool),
     ("pcs_profile_valid", StatusKind::Bool),
     ("pcs_profile", StatusKind::String),
+    ("pcs_available", StatusKind::Bool),
+    ("pcs_signal_detected", StatusKind::Bool),
+    ("pcs_freqdet_locked", StatusKind::Bool),
+    ("pcs_rx_ready_gate", StatusKind::Bool),
+    ("pcs_rx_fifo_reset_released", StatusKind::Bool),
+    ("pcs_calibration_stage", StatusKind::U32),
+    ("pcs_calibration_error", StatusKind::S32),
+    ("pcs_calibration_runs", StatusKind::U32),
+    ("pcs_eo_gain", StatusKind::U32),
+    ("pcs_eo_peaking", StatusKind::U32),
+    ("pcs_eo_fom", StatusKind::U32),
 ];
 
 const FRONTEND_FIELDS: &[(&str, StatusKind)] = &[
@@ -368,6 +385,7 @@ const FRONTEND_FIELDS: &[(&str, StatusKind)] = &[
     ("tx_bias_8472", StatusKind::U32),
     ("tx_power_8472", StatusKind::U32),
     ("rx_power_8472", StatusKind::U32),
+    ("tx_path_ready", StatusKind::Bool),
 ];
 
 const REGISTRATION_FIELDS: &[(&str, StatusKind)] = &[
@@ -380,11 +398,39 @@ const REGISTRATION_FIELDS: &[(&str, StatusKind)] = &[
     ("upstream_tx_armed", StatusKind::Bool),
     ("serial_configured", StatusKind::Bool),
     ("registration_id_configured", StatusKind::Bool),
+    ("epon_epoch", StatusKind::U32),
+    ("epon_reopens", StatusKind::U32),
+    ("epon_reopen_attempts", StatusKind::U32),
+    ("epon_reopen_reloads", StatusKind::U32),
+    ("epon_tx_deferrals", StatusKind::U32),
+    ("epon_reregisters", StatusKind::U32),
+    ("epon_deregisters", StatusKind::U32),
+    ("epon_registered_ms", StatusKind::U32),
+    ("epon_last_registered_ms", StatusKind::U32),
+    ("epon_last_register_status", StatusKind::U32),
+    ("epon_last_mac_event", StatusKind::String),
+    ("epon_ever_registered", StatusKind::Bool),
+    ("epon_reopen_pending", StatusKind::Bool),
+    ("itu_ploamd_accepted", StatusKind::U32),
+    ("itu_ploamd_rejected", StatusKind::U32),
+    ("crypto_active", StatusKind::Bool),
+    ("crypto_default_ik_programmed", StatusKind::Bool),
+    ("crypto_activation_keys_programmed", StatusKind::Bool),
+    ("crypto_key_exchange_state", StatusKind::U32),
+    ("crypto_key_exchange_errors", StatusKind::U32),
+    ("crypto_current_key_index", StatusKind::U32),
 ];
 
 const DATAPATH_FIELDS: &[(&str, StatusKind)] = &[
     ("data_path_configured", StatusKind::Bool),
     ("service_ready", StatusKind::Bool),
+    ("tx_packets_submitted", StatusKind::U64),
+    ("tx_packets_completed", StatusKind::U64),
+    ("tx_packets_dropped", StatusKind::U64),
+    ("tx_no_mapping", StatusKind::U64),
+    ("rx_packets_delivered", StatusKind::U64),
+    ("rx_descriptors_dropped", StatusKind::U64),
+    ("rx_crc_errors", StatusKind::U64),
 ];
 
 const COUNTER_FIELDS: &[(&str, StatusKind)] = &[

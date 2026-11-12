@@ -998,3 +998,162 @@ msgstr "当前运行的 OAM 代理未上报该实际值。"
 
 msgid "The port count is embedded in the 26-byte ONU capabilities attribute."
 msgstr "端口数量嵌在 26 字节的 ONU 能力属性中上报。"
+
+msgid "Receiver active"
+msgstr "接收机已激活"
+
+msgid "Optical frontend voltage"
+msgstr "光前端电压"
+
+msgid "Optical frontend TX bias"
+msgstr "光前端 TX 偏置电流"
+
+msgid "Optical TX path ready"
+msgstr "发光通路就绪"
+
+msgid "Status shown for"
+msgstr "状态对应的模式"
+
+msgid "Active mode (configuration pending)"
+msgstr "当前生效模式（配置待重启）"
+
+msgid "Error %s"
+msgstr "错误 %s"
+
+msgid "Frontend and line details"
+msgstr "光前端与线路详情"
+
+msgid "Serial number configured"
+msgstr "序列号已配置"
+
+msgid "Registration ID configured"
+msgstr "Registration ID 已配置"
+
+msgid "PCS receiver diagnostics"
+msgstr "PCS 接收诊断"
+
+msgid "PCS status available"
+msgstr "PCS 状态可读"
+
+msgid "PCS signal detected"
+msgstr "PCS 检测到信号"
+
+msgid "Frequency detector locked"
+msgstr "鉴频器已锁定"
+
+msgid "RX ready gate"
+msgstr "RX 就绪门控"
+
+msgid "RX FIFO reset released"
+msgstr "RX FIFO 复位已释放"
+
+msgid "Calibration stage"
+msgstr "校准阶段"
+
+msgid "Calibration error"
+msgstr "校准错误"
+
+msgid "Calibration runs"
+msgstr "校准执行次数"
+
+msgid "EO gain"
+msgstr "EO 增益"
+
+msgid "EO peaking"
+msgstr "EO 峰化"
+
+msgid "EO FOM"
+msgstr "EO 品质因数（FOM）"
+
+msgid "Data path packet counters"
+msgstr "数据通路包计数"
+
+msgid "TX packets submitted"
+msgstr "TX 已提交包数"
+
+msgid "TX packets completed"
+msgstr "TX 已完成包数"
+
+msgid "TX packets dropped"
+msgstr "TX 丢弃包数"
+
+msgid "TX packets without mapping"
+msgstr "TX 无映射包数"
+
+msgid "RX packets delivered"
+msgstr "RX 已交付包数"
+
+msgid "RX descriptor drops"
+msgstr "RX 描述符丢弃数"
+
+msgid "RX CRC errors"
+msgstr "RX CRC 错误数"
+
+msgid "EPON registration diagnostics"
+msgstr "EPON 注册诊断"
+
+msgid "Registration epoch"
+msgstr "注册纪元"
+
+msgid "Line re-opens"
+msgstr "线路重开次数"
+
+msgid "Re-open attempts"
+msgstr "重开尝试次数"
+
+msgid "Re-opens with firmware reload"
+msgstr "带固件重载的重开次数"
+
+msgid "Deferred Discovery Gates"
+msgstr "跳过的 Discovery Gate"
+
+msgid "Re-registrations"
+msgstr "重新注册次数"
+
+msgid "De-registrations"
+msgstr "注销次数"
+
+msgid "Registered duration"
+msgstr "当前注册持续时长"
+
+msgid "Last registration duration"
+msgstr "上次注册持续时长"
+
+msgid "Last register status"
+msgstr "最近一次注册状态"
+
+msgid "Last MAC event"
+msgstr "最近一次 MAC 事件"
+
+msgid "Registered at least once"
+msgstr "本次会话曾注册成功"
+
+msgid "Re-open pending"
+msgstr "重开待执行"
+
+msgid "ITU-T PON registration and encryption diagnostics"
+msgstr "ITU-T PON 注册与加密诊断"
+
+msgid "PLOAMd accepted"
+msgstr "PLOAMd 已接受"
+
+msgid "PLOAMd rejected"
+msgstr "PLOAMd 已拒绝"
+
+msgid "Encryption active"
+msgstr "加密已启用"
+
+msgid "Default PLOAM integrity key programmed"
+msgstr "默认 PLOAM 完整性密钥已写入"
+
+msgid "Activation keys programmed"
+msgstr "激活密钥已写入"
+
+msgid "Key exchange state"
+msgstr "密钥交换状态"
+
+msgid "Key exchange errors"
+msgstr "密钥交换错误数"
+
+msgid "Current key index"
+msgstr "当前密钥索引"
