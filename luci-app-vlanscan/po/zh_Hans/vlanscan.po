@@ -1,0 +1,125 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-vlanscan\n"
+"PO-Revision-Date: 2026-11-13 06:50+0800\n"
+"Last-Translator: OpenWrt LuCI community\n"
+"Language: zh_Hans\n"
+"Language-Team: Chinese (Simplified)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "%ds / %ds"
+msgstr "%d 秒 / %d 秒"
+
+msgid "Candidate VLANs"
+msgstr "候选 VLAN"
+
+msgid "Comma separated ids or ranges, \"all\" for 1-4094. Empty uses a short list of common ISP VLANs."
+msgstr "逗号分隔的 VLAN 号或区间，\"all\" 表示 1-4094。留空则使用常见运营商 VLAN 的短列表。"
+
+msgid "DHCP offer"
+msgstr "DHCP Offer"
+
+msgid "DHCP server"
+msgstr "DHCP 服务器"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Discover which 802.1Q VLAN ids carry traffic on the PON uplink. Passive listening never transmits anything; probing sends discovery frames only (ARP request, PPPoE PADI, DHCP DISCOVER) and never binds a lease or a session."
+msgstr "探测 PON 上行承载了哪些 802.1Q VLAN。被动监听不发送任何数据包；主动探测只发送发现帧（ARP 请求、PPPoE PADI、DHCP DISCOVER），绝不会绑定租约或建立会话。"
+
+msgid "Duration (seconds)"
+msgstr "监听时长（秒）"
+
+msgid "Duration must be between 1 and 86400 seconds."
+msgstr "时长必须在 1 到 86400 秒之间。"
+
+msgid "Failed to delete the job: %s"
+msgstr "删除任务失败：%s"
+
+msgid "Failed to start the scan: %s"
+msgstr "启动扫描失败：%s"
+
+msgid "Gateway (ARP)"
+msgstr "网关（ARP）"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Job %s"
+msgstr "任务 %s"
+
+msgid "Leave empty to auto-detect the PON interface (found via /sys/class/net/*/xpon, typically pon0)."
+msgstr "留空则自动探测 PON 接口（通过 /sys/class/net/*/xpon 识别，通常是 pon0）。"
+
+msgid "Mode"
+msgstr "模式"
+
+msgid "No scan jobs yet. Start one above; jobs survive page reloads and LuCI logins until the device reboots."
+msgstr "还没有扫描任务。请在上方启动一个；任务会跨页面刷新和 LuCI 重新登录保留，直到设备重启。"
+
+msgid "PPPoE"
+msgstr "PPPoE"
+
+msgid "Packets"
+msgstr "数据包"
+
+msgid "Passive listen (no packets sent)"
+msgstr "被动监听（不发送任何数据包）"
+
+msgid "Probe (discovery frames on candidate VLANs)"
+msgstr "主动探测（向候选 VLAN 发送发现帧）"
+
+msgid "Really delete job %s and its results?"
+msgstr "确定删除任务 %s 及其结果吗？"
+
+msgid "Scan jobs"
+msgstr "扫描任务"
+
+msgid "Start scan"
+msgstr "启动扫描"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "The scan failed - see the system log for details."
+msgstr "扫描失败——详情请查看系统日志。"
+
+msgid "The scanner process is no longer running; partial results were kept."
+msgstr "扫描进程已不在运行；已保留部分结果。"
+
+msgid "Traffic classes"
+msgstr "流量分类"
+
+msgid "VLAN"
+msgstr "VLAN"
+
+msgid "VLAN %d (%d of %d)"
+msgstr "VLAN %d（第 %d / %d 个）"
+
+msgid "VLAN Scan"
+msgstr "VLAN 扫描"
+
+msgid "VLAN list must be \"35,100,1000-1010\" or \"all\"."
+msgstr "VLAN 列表必须为 \"35,100,1000-1010\" 或 \"all\"。"
+
+msgid "VLAN scan control failed: %s"
+msgstr "扫描控制命令执行失败：%s"
+
+msgid "auto-detect"
+msgstr "自动探测"
+
+msgid "listening…"
+msgstr "监听中……"
+
+msgid "starting…"
+msgstr "启动中……"
+
+msgid "untagged"
+msgstr "未打标签"
+
+msgid "yes (PADO)"
+msgstr "有（收到 PADO）"
