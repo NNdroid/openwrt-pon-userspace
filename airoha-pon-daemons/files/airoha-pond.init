@@ -60,6 +60,17 @@ start_service() {
 	config_foreach start_line_instance xpon
 }
 
+# The daemons read /etc/config/pon themselves, so the procd instance JSON is
+# byte-identical across reloads. What makes procd restart the process is the
+# MD5 comparison of the procd_set_param file list - but only when a reload
+# actually happens. Without this trigger nothing ever runs
+# "/etc/init.d/airoha-pond reload" when the UCI config changes: a LuCI
+# "Save & Apply" would leave the daemons running with the old configuration
+# (e.g. a changed LOID padding) until a manual restart or reboot.
+service_triggers() {
+	procd_add_reload_trigger "pon"
+}
+
 stop_service() {
 	config_load pon
 	config_foreach stop_control_device omci
