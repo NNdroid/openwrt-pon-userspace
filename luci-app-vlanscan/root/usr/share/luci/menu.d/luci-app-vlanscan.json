@@ -1,0 +1,13 @@
+{
+	"admin/network/vlanscan": {
+		"title": "VLAN Scan",
+		"order": 87,
+		"action": {
+			"type": "view",
+			"path": "vlanscan/scan"
+		},
+		"depends": {
+			"acl": [ "luci-app-vlanscan" ]
+		}
+	}
+}

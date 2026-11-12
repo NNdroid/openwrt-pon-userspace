@@ -1,0 +1,19 @@
+{
+	"luci-app-vlanscan": {
+		"description": "Grant access to VLAN scan jobs",
+		"read": {
+			"file": {
+				"/tmp/vlanscan": [ "list" ],
+				"/tmp/vlanscan/*": [ "read" ],
+				"/tmp/vlanscan/*/job.json": [ "read" ],
+				"/tmp/vlanscan/*/results.json": [ "read" ],
+				"/usr/libexec/vlanscan-ctl": [ "exec" ]
+			}
+		},
+		"write": {
+			"file": {
+				"/usr/libexec/vlanscan-ctl": [ "exec" ]
+			}
+		}
+	}
+}
