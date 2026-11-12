@@ -1,0 +1,18 @@
+[package]
+name = "airoha-vlanscan"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0-only"
+description = "Safe VLAN ID scanner for Airoha PON uplinks"
+repository = "https://github.com/pbs05/openwrt-pon-userspace"
+
+[[bin]]
+name = "vlanscan"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

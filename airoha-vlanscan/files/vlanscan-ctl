@@ -1,0 +1,241 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# vlanscan-ctl - job control for the LuCI VLAN scan app.
+#
+# Subcommands:
+#   start <passive|probe> [key=value ...]   start a detached background job
+#   stop <job-id>                           terminate a running job
+#   delete <job-id>                         remove a finished job's files
+#   list                                    patch stale jobs, list id/status
+#   interfaces                              list detected PON interfaces
+#
+# Job layout under /tmp/vlanscan/<id>/:
+#   pid           scanner process id (written by vlanscan itself)
+#   status        running | completed | stopped | failed | interrupted
+#   job.json      metadata + live progress (written by vlanscan)
+#   results.json  final results (written by vlanscan on completion)
+#
+# All external input is validated here before it ever reaches a command
+# line; the scanner itself treats the job directory as untrusted-free state.
+
+JOB_ROOT="/tmp/vlanscan"
+MAX_JOBS=20
+
+fail() {
+	echo "{\"error\":\"$*\"}"
+	exit 1
+}
+
+valid_iface() {
+	case "$1" in
+		''|*[!A-Za-z0-9_.:-]*) return 1 ;;
+	esac
+	return 0
+}
+
+valid_num() {
+	case "$1" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	return 0
+}
+
+valid_vlans() {
+	case "$1" in
+		all) return 0 ;;
+		*[!0-9,-]*|'') return 1 ;;
+	esac
+	return 0
+}
+
+valid_ip() {
+	case "$1" in
+		*[!0-9.]*) return 1 ;;
+	esac
+	return 0
+}
+
+cmd_start() {
+	local mode="$1"
+	shift
+	[ "$mode" = "passive" ] || [ "$mode" = "probe" ] || fail "invalid mode"
+
+	# Keep the job count bounded; drop the oldest finished jobs first.
+	mkdir -p "$JOB_ROOT" || fail "cannot create $JOB_ROOT"
+	local count=0
+	for dir in "$JOB_ROOT"/*/; do
+		[ -d "$dir" ] && count=$((count + 1))
+	done
+	if [ "$count" -ge "$MAX_JOBS" ]; then
+		for dir in "$JOB_ROOT"/*/; do
+			[ -d "$dir" ] || continue
+			local status
+			status="$(cat "$dir/status" 2>/dev/null || echo running)"
+			[ "$status" != "running" ] && rm -rf "$dir"
+		done
+	fi
+
+	local id
+	id="$(date +%s)"
+	local dir="$JOB_ROOT/$id"
+	while [ -e "$dir" ]; do
+		id=$((id + 1))
+		dir="$JOB_ROOT/$id"
+	done
+	mkdir -p "$dir" || fail "cannot create job dir"
+
+	local args="--job $dir"
+	while [ $# -gt 0 ]; do
+		local key="${1%%=*}"
+		local value="${1#*=}"
+		case "$key" in
+			interface)
+				[ -n "$value" ] && {
+					valid_iface "$value" || fail "invalid interface"
+					args="$args -i $value"
+				}
+				;;
+			duration)
+				valid_num "$value" || fail "invalid duration"
+				args="$args --duration $value"
+				;;
+			vlans)
+				valid_vlans "$value" || fail "invalid vlan list"
+				args="$args --vlan $value"
+				;;
+			probe_wait)
+				valid_num "$value" || fail "invalid probe wait"
+				args="$args --probe-wait $value"
+				;;
+			arp_target)
+				valid_ip "$value" || fail "invalid arp target"
+				args="$args --arp-target $value"
+				;;
+		esac
+		shift
+	done
+
+	[ "$mode" = "probe" ] && args="$args --probe"
+
+	# Detached double-fork style start; vlanscan writes its own pid into
+	# the job dir, so this shell does not need to track the child.
+	echo "running" > "$dir/status"
+	( setsid vlanscan $args >/dev/null 2>&1 </dev/null & )
+	echo "{\"id\":\"$id\",\"status\":\"running\"}"
+}
+
+cmd_stop() {
+	local id
+	id="$(printf '%s' "$1" | tr -cd '0-9')"
+	[ -n "$id" ] || fail "invalid job id"
+	local dir="$JOB_ROOT/$id"
+	[ -d "$dir" ] || fail "no such job"
+
+	if [ -f "$dir/pid" ]; then
+		local pid
+		pid="$(cat "$dir/pid")"
+		kill "$pid" 2>/dev/null
+		# Give the scanner a moment to write partial results on its own,
+		# then make sure it is really gone.
+		local waited=0
+		while [ "$waited" -lt 4 ] && kill -0 "$pid" 2>/dev/null; do
+			sleep 1
+			waited=$((waited + 1))
+		done
+		kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+	fi
+	echo "stopped" > "$dir/status"
+	echo "{\"id\":\"$id\",\"status\":\"stopped\"}"
+}
+
+cmd_delete() {
+	local id
+	id="$(printf '%s' "$1" | tr -cd '0-9')"
+	[ -n "$id" ] || fail "invalid job id"
+	local dir="$JOB_ROOT/$id"
+	[ -d "$dir" ] || fail "no such job"
+
+	# Running jobs keep their state files; stop them first. The id is
+	# digits-only, so the directory removed here is always one of ours.
+	local status
+	status="$(cat "$dir/status" 2>/dev/null || echo running)"
+	[ "$status" = "running" ] && fail "job is still running, stop it first"
+
+	rm -rf "$dir" || fail "cannot delete job dir"
+	echo "{\"id\":\"$id\",\"status\":\"deleted\"}"
+}
+
+cmd_list() {
+	printf '['
+	local first=1
+	for dir in "$JOB_ROOT"/*/; do
+		[ -d "$dir" ] || continue
+		local id="${dir#${JOB_ROOT}/}"
+		id="${id%/}"
+		local status
+		status="$(cat "$dir/status" 2>/dev/null || echo running)"
+		if [ "$status" = "running" ]; then
+			if [ -f "$dir/pid" ]; then
+				local pid
+				pid="$(cat "$dir/pid")"
+				if ! kill -0 "$pid" 2>/dev/null; then
+					status="interrupted"
+					echo "interrupted" > "$dir/status"
+				fi
+			else
+				# No pid yet: either still starting or died early. Give
+				# the job one minute before calling it interrupted.
+				local mtime
+				mtime="$(stat -c %Y "$dir" 2>/dev/null || echo 0)"
+				local now
+				now="$(date +%s)"
+				if [ "$mtime" -gt 0 ] && [ "$((now - mtime))" -gt 60 ]; then
+					status="interrupted"
+					echo "interrupted" > "$dir/status"
+				fi
+			fi
+		fi
+		[ "$first" -eq 1 ] || printf ','
+		first=0
+		printf '{"id":"%s","status":"%s"}' "$id" "$status"
+	done
+	printf ']\n'
+}
+
+cmd_interfaces() {
+	printf '['
+	local first=1
+	local path
+	local found=0
+	for path in /sys/class/net/*/xpon; do
+		[ -d "$path" ] || continue
+		found=1
+		local name="${path%/xpon}"
+		name="${name##*/}"
+		[ "$first" -eq 1 ] || printf ','
+		first=0
+		printf '"%s"' "$name"
+	done
+	if [ "$found" -eq 0 ]; then
+		# xpon driver not loaded: fall back to all real interfaces so the
+		# LuCI dropdown still offers a manual choice.
+		for path in /sys/class/net/*; do
+			[ -e "$path" ] || continue
+			local name="${path##*/}"
+			[ "$name" = "lo" ] && continue
+			[ "$first" -eq 1 ] || printf ','
+			first=0
+			printf '"%s"' "$name"
+		done
+	fi
+	printf ']\n'
+}
+
+case "${1:-}" in
+	start) shift && cmd_start "$@" ;;
+	stop) shift && cmd_stop "$@" ;;
+	delete) shift && cmd_delete "$@" ;;
+	list) cmd_list ;;
+	interfaces) cmd_interfaces ;;
+	*) fail "usage: vlanscan-ctl {start|stop|delete|list|interfaces}" ;;
+esac
