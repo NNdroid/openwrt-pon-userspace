@@ -12,6 +12,64 @@ var CTL = '/usr/libexec/vlanscan-ctl';
 /* Keep the log tab responsive even if a scanner ever becomes chatty. */
 var MAX_LOG_LINES = 1500;
 
+/* Must stay in sync with COMMON_VLANS in the scanner. Used only to estimate
+ * an explicit "common" probe - never as an implicit default. */
+var COMMON_VLAN_IDS = [10, 35, 41, 45, 48, 85, 100, 101, 102, 110, 130, 200,
+	451, 1000, 1001, 2000, 3000, 3961, 4001];
+var ALL_VLAN_COUNT = 4094;
+var PROBE_INTERVAL_MS = 200;
+var FRAMES_PER_VLAN = 3;
+
+/* Count the VLANs a candidate expression expands to, or null when the
+ * expression is not valid yet. Mirrors vlanscan's parse_vlan_list(). */
+function countVlans(text) {
+	var value = (text || '').trim();
+	if (!value)
+		return 0;
+	var ids = [];
+	var parts = value.split(',');
+	for (var i = 0; i < parts.length; i++) {
+		var part = parts[i].trim();
+		if (/^all$/i.test(part))
+			return ALL_VLAN_COUNT;
+		if (/^common$/i.test(part)) {
+			ids = ids.concat(COMMON_VLAN_IDS);
+			continue;
+		}
+		var range = /^(\d+)-(\d+)$/.exec(part);
+		if (range) {
+			var from = parseInt(range[1], 10), to = parseInt(range[2], 10);
+			if (from < 1 || to > ALL_VLAN_COUNT || from > to)
+				return null;
+			for (var vlan = from; vlan <= to; vlan++)
+				ids.push(vlan);
+			continue;
+		}
+		if (!/^\d+$/.test(part))
+			return null;
+		var id = parseInt(part, 10);
+		if (id < 1 || id > ALL_VLAN_COUNT)
+			return null;
+		ids.push(id);
+	}
+	var seen = {}, unique = 0;
+	for (var j = 0; j < ids.length; j++) {
+		if (!seen[ids[j]]) {
+			seen[ids[j]] = 1;
+			unique++;
+		}
+	}
+	return unique;
+}
+
+function durationText(seconds) {
+	if (seconds < 60)
+		return Math.round(seconds) + ' s';
+	if (seconds < 3600)
+		return Math.round(seconds / 60) + ' min';
+	return (seconds / 3600).toFixed(1) + ' h';
+}
+
 /* Theme-neutral styles: every surface uses translucent neutral tones and
  * inherits the current text colour, so the view stays readable in both
  * light and dark LuCI themes. Accent colours are used only as small chips. */
@@ -283,6 +341,7 @@ return view.extend({
 	},
 
 	renderResults: function (job) {
+		var self = this;
 		var results = job.results;
 		var isProbe = (job.mode == 'probe');
 		if (!results || !results.length)
@@ -345,11 +404,28 @@ return view.extend({
 		var summary = isProbe
 			? _('%d live VLAN(s)').format(results.length)
 			: _('%d VLAN key(s), %d packets').format(results.length, total);
+		var head = [
+			E('span', {}, _('Results')),
+			E('span', { 'class': 'vscan-count' }, summary)
+		];
+		if (!isProbe) {
+			var discovered = results.filter(function (entry) {
+				return entry.vid !== null && entry.vid !== undefined;
+			}).map(function (entry) {
+				return entry.vid;
+			});
+			if (discovered.length) {
+				head.push(E('button', {
+					'class': 'btn cbi-button',
+					'style': 'margin-left:auto',
+					'click': ui.createHandlerFn(function () {
+						return self.probeDiscovered(discovered);
+					})
+				}, _('Probe these VLANs')));
+			}
+		}
 		return E('div', {}, [
-			E('div', { 'class': 'vscan-results-head' }, [
-				E('span', {}, _('Results')),
-				E('span', { 'class': 'vscan-count' }, summary)
-			]),
+			E('div', { 'class': 'vscan-results-head' }, head),
 			E('table', { 'class': 'vscan-table' }, rows)
 		]);
 	},
@@ -466,6 +542,69 @@ return view.extend({
 			if (self.activeTab == 'log' && self.logAutoNode && self.logAutoNode.checked)
 				self.refreshLog(false);
 		});
+	},
+
+	applyModeVisibility: function () {
+		var self = this;
+		var probe = self.modeNode.value == 'probe';
+		self.durationRow.style.display = probe ? 'none' : '';
+		self.probeRows.forEach(function (row) {
+			row.style.display = probe ? '' : 'none';
+		});
+		self.updateEstimate();
+	},
+
+	applyVlanMode: function () {
+		var self = this;
+		self.vlansCustomNode.style.display =
+			self.vlansModeNode.value == 'custom' ? '' : 'none';
+		self.updateEstimate();
+	},
+
+	/* Show the real cost of a probe before it is started. Each VLAN costs a
+	 * full reply window plus a fixed inter-VLAN gap, and sends three frames. */
+	updateEstimate: function () {
+		var self = this;
+		if (!self.vlansEstimateNode || !self.vlansModeNode)
+			return;
+		var mode = self.vlansModeNode.value;
+		var wait = parseInt(self.waitNode.value, 10);
+		if (isNaN(wait) || wait < 100)
+			wait = 2000;
+		var text;
+		if (mode === '') {
+			text = _('Empty probes only the VLANs already configured on the PON interface. ISP VLAN ids differ by region - run a passive scan first if the service VLAN is unknown.');
+		}
+		else {
+			var count = mode == 'all' ? ALL_VLAN_COUNT
+				: (mode == 'common' ? COMMON_VLAN_IDS.length
+					: countVlans(self.vlansNode.value));
+			if (!count) {
+				text = _('Enter VLAN ids or ranges, for example "35,100,1000-1010".');
+			}
+			else {
+				var seconds = (count * wait +
+					Math.max(0, count - 1) * PROBE_INTERVAL_MS) / 1000;
+				text = _('About %d VLAN(s) · roughly %s · %d discovery frames sent to the OLT.')
+					.format(count, durationText(seconds), count * FRAMES_PER_VLAN);
+			}
+		}
+		self.vlansEstimateNode.textContent = text;
+	},
+
+	/* Passive results carry the VLANs this specific link really uses. Let the
+	 * user carry them straight into an active probe instead of guessing. */
+	probeDiscovered: function (vlans) {
+		var self = this;
+		self.modeNode.value = 'probe';
+		self.applyModeVisibility();
+		self.vlansModeNode.value = 'custom';
+		self.applyVlanMode();
+		self.vlansNode.value = vlans.join(',');
+		self.updateEstimate();
+		self.setTab('jobs');
+		if (self.formNode && self.formNode.scrollIntoView)
+			self.formNode.scrollIntoView();
 	},
 
 	setTab: function (key) {
@@ -587,10 +726,17 @@ return view.extend({
 			args.push('duration=' + duration);
 		}
 		else {
-			var vlans = self.vlansNode.value.trim();
-			if (vlans && !/^(all|[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*)$/.test(vlans)) {
-				ui.addNotification(null, E('p', {}, _('VLAN list must be "35,100,1000-1010" or "all".')), 'error');
-				return;
+			var vlanMode = self.vlansModeNode.value;
+			var vlans = '';
+			if (vlanMode == 'custom') {
+				vlans = self.vlansNode.value.trim();
+				if (vlans && !/^(all|common|[0-9]+(-[0-9]+)?)(,(all|common|[0-9]+(-[0-9]+)?))*$/i.test(vlans)) {
+					ui.addNotification(null, E('p', {}, _('VLAN list must be "35,100,1000-1010", "common" or "all".')), 'error');
+					return;
+				}
+			}
+			else if (vlanMode !== '') {
+				vlans = vlanMode;
 			}
 			if (vlans)
 				args.push('vlans=' + vlans);
@@ -657,15 +803,27 @@ return view.extend({
 				self.durationNode = E('input', { type: 'number', min: 1, max: 86400, value: 60 }))
 		]);
 
+		/* Candidate VLANs are always an explicit choice. An empty selection
+		 * means "only VLANs already configured on this device" - ISP VLAN ids
+		 * differ by region, so no guessed list is probed implicitly. */
 		var vlansRow = E('div', { 'class': 'cbi-value' }, [
 			E('label', { 'class': 'cbi-value-title' }, _('Candidate VLANs')),
 			E('div', { 'class': 'cbi-value-field' }, [
-				self.vlansNode = E('input', {
-					type: 'text',
-					placeholder: '130,1000-1010'
-				}),
-				E('div', { 'class': 'cbi-value-description' },
-					_('Comma separated ids or ranges, "all" for 1-4094. Empty probes the VLANs already configured on the PON interface plus a short list of common ISP VLANs.'))
+				self.vlansModeNode = E('select', {
+					'change': function () { self.applyVlanMode(); }
+				}, [
+					E('option', { value: '' }, _('Configured VLANs only (recommended)')),
+					E('option', { value: 'common' }, _('Common ISP VLANs (19 ids)')),
+					E('option', { value: 'all' }, _('All VLANs (1-4094)')),
+					E('option', { value: 'custom' }, _('Custom list…'))
+				]),
+				self.vlansCustomNode = E('div', { 'style': 'margin-top:6px' },
+					self.vlansNode = E('input', {
+						type: 'text',
+						placeholder: '130,1000-1010',
+						'keyup': function () { self.updateEstimate(); }
+					})),
+				self.vlansEstimateNode = E('div', { 'class': 'cbi-value-description' })
 			])
 		]);
 
@@ -684,7 +842,11 @@ return view.extend({
 		var waitRow = E('div', { 'class': 'cbi-value' }, [
 			E('label', { 'class': 'cbi-value-title' }, _('Reply wait (ms)')),
 			E('div', { 'class': 'cbi-value-field' }, [
-				self.waitNode = E('input', { type: 'number', min: 100, max: 60000, value: 2000 }),
+				self.waitNode = E('input', {
+					type: 'number', min: 100, max: 60000, value: 2000,
+					'change': function () { self.updateEstimate(); },
+					'keyup': function () { self.updateEstimate(); }
+				}),
 				E('div', { 'class': 'cbi-value-description' },
 					_('How long to wait for replies on each VLAN. Increase this if the DHCP server is slow; probing "all" VLANs takes roughly this long per VLAN.'))
 			])
@@ -731,15 +893,9 @@ return view.extend({
 			E('div', { 'class': 'cbi-value' }, [
 				E('label', { 'class': 'cbi-value-title' }, _('Mode')),
 				E('div', { 'class': 'cbi-value-field' },
-					self.modeNode = E('select', {
-						'change': function (ev) {
-							var probe = ev.target.value == 'probe';
-							self.durationRow.style.display = probe ? 'none' : '';
-							self.probeRows.forEach(function (row) {
-								row.style.display = probe ? '' : 'none';
-							});
-						}
-					}, [
+				self.modeNode = E('select', {
+					'change': function () { self.applyModeVisibility(); }
+				}, [
 						E('option', { value: 'passive' }, _('Passive listen (no packets sent)')),
 						E('option', { value: 'probe' }, _('Probe (discovery frames on candidate VLANs)'))
 					]))
@@ -824,7 +980,9 @@ return view.extend({
 		self.logAutoNode.checked = true;
 		self.durationRow = durationRow;
 		self.probeRows = probeRows;
-		probeRows.forEach(function (row) { row.style.display = 'none'; });
+		self.formNode = scanForm;
+		self.applyModeVisibility();
+		self.applyVlanMode();
 
 		self.refreshJobs();
 		poll.add(L.bind(self.refreshJobs, self), 3);

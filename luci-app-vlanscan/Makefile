@@ -7,7 +7,7 @@ LUCI_URL:=https://github.com/pbs05/openwrt-pon-userspace/tree/main/luci-app-vlan
 LUCI_DEPENDS:=+luci-base +airoha-vlanscan
 LUCI_PKGARCH:=all
 
-PKG_VERSION:=0.1.0
+PKG_VERSION:=0.2.0
 PKG_RELEASE:=1
 PKG_LICENSE:=Apache-2.0
 

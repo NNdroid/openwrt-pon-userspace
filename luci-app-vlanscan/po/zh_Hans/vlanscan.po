@@ -1,7 +1,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-vlanscan\n"
-"PO-Revision-Date: 2026-11-13 13:25+0800\n"
+"PO-Revision-Date: 2026-11-13 14:00+0800\n"
 "Last-Translator: OpenWrt LuCI community\n"
 "Language: zh_Hans\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -27,9 +27,6 @@ msgstr "ARP 目标必须是合法的 IPv4 地址。"
 
 msgid "Candidate VLANs"
 msgstr "候选 VLAN"
-
-msgid "Comma separated ids or ranges, \"all\" for 1-4094. Empty probes the VLANs already configured on the PON interface plus a short list of common ISP VLANs."
-msgstr "逗号分隔的 VLAN 号或区间，\"all\" 表示 1-4094。留空则探测 PON 接口上已配置的 VLAN，外加一组常见运营商 VLAN。"
 
 msgid "DHCP offer"
 msgstr "DHCP Offer"
@@ -172,9 +169,6 @@ msgstr "VLAN 扫描"
 msgid "VLAN ids reported as untagged (null) are frames without an 802.1Q tag."
 msgstr "显示为未打标签（null）的 VLAN，表示不带 802.1Q 标签的数据帧。"
 
-msgid "VLAN list must be \"35,100,1000-1010\" or \"all\"."
-msgstr "VLAN 列表必须为 \"35,100,1000-1010\" 或 \"all\"。"
-
 msgid "VLAN scan control failed: %s"
 msgstr "扫描控制命令执行失败：%s"
 
@@ -243,3 +237,30 @@ msgstr "%d 行 · 更新于 %s"
 
 msgid "Showing the last %d lines of a longer log."
 msgstr "日志较长，仅显示最后 %d 行。"
+
+msgid "About %d VLAN(s) · roughly %s · %d discovery frames sent to the OLT."
+msgstr "约 %d 个 VLAN · 耗时约 %s · 向 OLT 发送 %d 个发现帧。"
+
+msgid "All VLANs (1-4094)"
+msgstr "全部 VLAN（1-4094）"
+
+msgid "Common ISP VLANs (19 ids)"
+msgstr "常见运营商 VLAN（19 个）"
+
+msgid "Configured VLANs only (recommended)"
+msgstr "仅本机已配置的 VLAN（推荐）"
+
+msgid "Custom list…"
+msgstr "自定义列表……"
+
+msgid "Empty probes only the VLANs already configured on the PON interface. ISP VLAN ids differ by region - run a passive scan first if the service VLAN is unknown."
+msgstr "留空只探测 PON 接口上已配置的 VLAN。各地运营商 VLAN 不同，若不知道业务 VLAN，请先运行被动监听。"
+
+msgid "Enter VLAN ids or ranges, for example \"35,100,1000-1010\"."
+msgstr "请输入 VLAN 号或区间，例如 \"35,100,1000-1010\"。"
+
+msgid "Probe these VLANs"
+msgstr "探测这些 VLAN"
+
+msgid "VLAN list must be \"35,100,1000-1010\", \"common\" or \"all\"."
+msgstr "VLAN 列表格式须为 \"35,100,1000-1010\"、\"common\" 或 \"all\"。"
