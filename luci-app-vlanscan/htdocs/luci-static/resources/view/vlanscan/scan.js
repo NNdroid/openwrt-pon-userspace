@@ -203,57 +203,58 @@ return view.extend({
 		if (!results || !results.length)
 			return E('div', { 'class': 'vscan-empty' }, _('No packets captured during this scan window.'));
 
-		if (job.mode == 'probe') {
-			var prows = results.map(function (entry) {
-				return E('tr', {}, [
+		// Build one flat array of <tr> nodes and pass it directly to E('table', ...).
+		// Avoid nesting an array inside the children array: older LuCI E() does not
+		// recursively flatten, and would stringify the inner array as
+		// "[object HTMLTableRowElement],..." instead of appending the rows.
+		var rows = [];
+		var isProbe = (job.mode == 'probe');
+
+		rows.push(E('tr', { 'class': 'vscan-thead' }, isProbe ? [
+			E('th', {}, _('VLAN')),
+			E('th', {}, _('PPPoE')),
+			E('th', {}, _('Gateway (ARP)')),
+			E('th', {}, _('DHCP offer')),
+			E('th', {}, _('DHCP server'))
+		] : [
+			E('th', {}, _('VLAN')),
+			E('th', {}, _('Packets')),
+			E('th', {}, _('Traffic classes'))
+		]));
+
+		if (isProbe) {
+			results.forEach(function (entry) {
+				rows.push(E('tr', {}, [
 					E('td', {}, String(entry.vid)),
 					E('td', {}, entry.pppoe ? _('yes (PADO)') : '–'),
 					E('td', {}, entry.gateway || '–'),
 					E('td', {}, entry.dhcp_offer || '–'),
 					E('td', {}, entry.dhcp_server || '–')
-				]);
+				]));
 			});
-			return E('div', {}, [
-				E('div', { 'class': 'vscan-results-head' }, _('Results')),
-				E('table', { 'class': 'vscan-table' }, [
-					E('tr', { 'class': 'vscan-thead' }, [
-						E('th', {}, _('VLAN')),
-						E('th', {}, _('PPPoE')),
-						E('th', {}, _('Gateway (ARP)')),
-						E('th', {}, _('DHCP offer')),
-						E('th', {}, _('DHCP server'))
-					]),
-					prows
-				])
-			]);
+		}
+		else {
+			var total = 0;
+			results.forEach(function (entry) {
+				var pkts = entry.packets || 0;
+				total += pkts;
+				var isUntagged = entry.vid === null;
+				rows.push(E('tr', isUntagged ? { 'class': 'vscan-untagged' } : {}, [
+					E('td', {}, isUntagged ? _('untagged') + ' (null)' : String(entry.vid)),
+					E('td', {}, String(pkts)),
+					E('td', {}, classChips(entry.classes))
+				]));
+			});
+			rows.push(E('tr', { 'class': 'vscan-total' }, [
+				E('td', {}, _('Total')),
+				E('td', {}, String(total)),
+				E('td', {}, '')
+			]));
 		}
 
-		var total = 0;
-		var rows = results.map(function (entry) {
-			var pkts = entry.packets || 0;
-			total += pkts;
-			var isUntagged = entry.vid === null;
-			return E('tr', isUntagged ? { 'class': 'vscan-untagged' } : {}, [
-				E('td', {}, isUntagged ? _('untagged') + ' (null)' : String(entry.vid)),
-				E('td', {}, String(pkts)),
-				E('td', {}, classChips(entry.classes))
-			]);
-		});
-		rows.push(E('tr', { 'class': 'vscan-total' }, [
-			E('td', {}, _('Total')),
-			E('td', {}, String(total)),
-			E('td', {}, '')
-		]));
 		return E('div', {}, [
 			E('div', { 'class': 'vscan-results-head' }, _('Results')),
-			E('table', { 'class': 'vscan-table' }, [
-				E('tr', { 'class': 'vscan-thead' }, [
-					E('th', {}, _('VLAN')),
-					E('th', {}, _('Packets')),
-					E('th', {}, _('Traffic classes'))
-				]),
-				rows
-			])
+			E('table', { 'class': 'vscan-table' }, rows)
 		]);
 	},
 
