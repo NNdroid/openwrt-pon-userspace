@@ -82,8 +82,14 @@ function normalizeLog(text) {
  * light and dark LuCI themes. Accent colours are used only as small chips. */
 var CSS = [
 	'.vscan-card{background:rgba(127,127,127,.055);border:1px solid rgba(127,127,127,.2);border-radius:12px;padding:16px 18px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.05);}',
+	'.vscan-card.status-running{border-top:3px solid #22a06b;}',
+	'.vscan-card.status-completed{border-top:3px solid #2d8cf0;}',
+	'.vscan-card.status-failed{border-top:3px solid #d0453b;}',
+	'.vscan-card.status-interrupted{border-top:3px solid #b5650a;}',
 	'.vscan-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}',
 	'.vscan-badges{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+	'.vscan-status{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:11px;font-size:11.5px;font-weight:600;background:rgba(127,127,127,.14);color:inherit;}',
+	'.vscan-status-dot{width:7px;height:7px;border-radius:50%;flex:none;}',
 	'.vscan-title{font-weight:600;font-size:15px;color:inherit;}',
 	'.vscan-sub{opacity:.68;font-size:12px;margin-left:2px;}',
 	'.vscan-actions{display:inline-flex;gap:6px;}',
@@ -173,15 +179,32 @@ function ctlExec(args) {
 	});
 }
 
+/* Status colours are theme-neutral and reused by the badge and the card accent. */
+var STATUS_COLORS = {
+	running: '#22a06b',
+	completed: '#2d8cf0',
+	failed: '#d0453b',
+	interrupted: '#b5650a'
+};
+
+/* Localised status text. The job.state comes from the backend as a bare
+ * English word; surface it in the UI language instead of the raw string. */
+function statusText(status) {
+	switch (status) {
+		case 'running': return _('Running');
+		case 'completed': return _('Completed');
+		case 'failed': return _('Failed');
+		case 'interrupted': return _('Interrupted');
+		default: return status || '?';
+	}
+}
+
 function statusBadge(status) {
-	var classes = {
-		running: 'label label-success',
-		completed: 'label label-info',
-		stopped: 'label label-warning',
-		interrupted: 'label label-warning',
-		failed: 'label label-danger'
-	};
-	return E('span', { 'class': classes[status] || 'label label-default' }, status);
+	var color = STATUS_COLORS[status] || 'rgba(127,127,127,.55)';
+	return E('span', { 'class': 'vscan-status' }, [
+		E('span', { 'class': 'vscan-status-dot', 'style': 'background:' + color }, ''),
+		statusText(status)
+	]);
 }
 
 function jobTime(id) {
@@ -197,6 +220,33 @@ function modeText(mode) {
 	if (mode === 'passive')
 		return _('Passive listen (no packets sent)');
 	return mode || '?';
+}
+
+// Version-independent confirmation dialog. Some LuCI snapshots do not ship
+// ui.confirm(), so fall back to a showModal-built dialog, then to the native
+// confirm as a last resort. Returns a Promise<boolean>.
+function askConfirm(title, message, confirmLabel) {
+	if (typeof ui.confirm === 'function')
+		return ui.confirm(title, message);
+	if (typeof ui.showModal === 'function') {
+		return new Promise(function (resolve) {
+			var ok = E('button', { 'class': 'btn cbi-button cbi-button-negative' }, confirmLabel || _('OK'));
+			var cancel = E('button', { 'class': 'btn cbi-button' }, _('Cancel'));
+			ok.addEventListener('click', function () {
+				if (ui.hideModal) ui.hideModal();
+				resolve(true);
+			});
+			cancel.addEventListener('click', function () {
+				if (ui.hideModal) ui.hideModal();
+				resolve(false);
+			});
+			ui.showModal(title, E('div', {}, [
+				E('p', {}, message),
+				E('div', { 'class': 'right', 'style': 'margin-top:1em' }, [ cancel, ok ])
+			]));
+		});
+	}
+	return Promise.resolve(window.confirm(message));
 }
 
 function chipClass(name) {
@@ -500,16 +550,19 @@ return view.extend({
 			actions.push(E('button', {
 				'class': 'btn cbi-button cbi-button-remove',
 				'click': ui.createHandlerFn(self, function () {
-					return ui.confirm(_('Really delete job %s and its results?').format(jobTime(job.id)), _('Delete'))
-						.then(function (confirmed) {
-							if (!confirmed)
-								return;
-							return ctlExec([ 'delete', job.id ]).then(function (reply) {
-								if (reply && reply.code != 0)
-									ui.addNotification(null, E('p', {}, _('Failed to delete the job: %s').format(reply.stdout || reply.code)), 'error');
-								return self.refreshJobs();
-							});
+					return askConfirm(
+						_('Delete job'),
+						_('Really delete job %s and its results?').format(jobTime(job.id)),
+						_('Delete')
+					).then(function (confirmed) {
+						if (!confirmed)
+							return;
+						return ctlExec([ 'delete', job.id ]).then(function (reply) {
+							if (reply && reply.code != 0)
+								ui.addNotification(null, E('p', {}, _('Failed to delete the job: %s').format(reply.stdout || reply.code)), 'error');
+							return self.refreshJobs();
 						});
+					});
 				})
 			}, _('Delete')));
 		}
@@ -550,7 +603,7 @@ return view.extend({
 		if (job.results && job.status != 'failed')
 			body.push(self.renderResults(job));
 
-		return E('div', { 'class': 'vscan-card' }, body);
+		return E('div', { 'class': 'vscan-card status-' + (job.status || 'unknown') }, body);
 	},
 
 	refreshJobs: function () {
@@ -689,8 +742,8 @@ return view.extend({
 			self.logSelectNode.appendChild(E('option', { value: '' }, _('Latest job (auto)')));
 			jobs.forEach(function (job) {
 				self.logSelectNode.appendChild(E('option', { value: job.id },
-					_('Job %s').format(jobTime(job.id)) + '  ·  ' + job.status +
-					'  ·  ' + (job.mode == 'probe' ? 'probe' : 'passive')));
+					_('Job %s').format(jobTime(job.id)) + '  ·  ' + statusText(job.status) +
+					'  ·  ' + modeText(job.mode)));
 			});
 		}
 

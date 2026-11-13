@@ -1,7 +1,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-vlanscan\n"
-"PO-Revision-Date: 2026-11-13 16:10+0800\n"
+"PO-Revision-Date: 2026-11-13 18:42+0800\n"
 "Last-Translator: OpenWrt LuCI community\n"
 "Language: zh_Hans\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -192,6 +192,27 @@ msgstr "自动（PON 接口 MAC）"
 
 msgid "auto-detect"
 msgstr "自动探测"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Completed"
+msgstr "已完成"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Interrupted"
+msgstr "已中断"
+
+msgid "OK"
+msgstr "确定"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Delete job"
+msgstr "删除任务"
 
 msgid "listening…"
 msgstr "监听中……"
