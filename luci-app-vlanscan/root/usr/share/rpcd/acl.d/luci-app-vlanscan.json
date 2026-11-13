@@ -7,6 +7,7 @@
 				"/tmp/vlanscan/*": [ "read" ],
 				"/tmp/vlanscan/*/job.json": [ "read" ],
 				"/tmp/vlanscan/*/results.json": [ "read" ],
+				"/tmp/vlanscan/*/log": [ "read" ],
 				"/usr/libexec/vlanscan-ctl": [ "exec" ]
 			}
 		},

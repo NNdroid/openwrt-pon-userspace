@@ -1,7 +1,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-vlanscan\n"
-"PO-Revision-Date: 2026-11-13 06:50+0800\n"
+"PO-Revision-Date: 2026-11-13 13:25+0800\n"
 "Last-Translator: OpenWrt LuCI community\n"
 "Language: zh_Hans\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -10,14 +10,26 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
+msgid "%d VLAN key(s), %d packets"
+msgstr "%d 个 VLAN，%d 个数据包"
+
+msgid "%d live VLAN(s)"
+msgstr "发现 %d 个存活 VLAN"
+
 msgid "%ds / %ds"
 msgstr "%d 秒 / %d 秒"
+
+msgid "ARP target"
+msgstr "ARP 目标"
+
+msgid "ARP target must be a valid IPv4 address."
+msgstr "ARP 目标必须是合法的 IPv4 地址。"
 
 msgid "Candidate VLANs"
 msgstr "候选 VLAN"
 
-msgid "Comma separated ids or ranges, \"all\" for 1-4094. Empty uses a short list of common ISP VLANs."
-msgstr "逗号分隔的 VLAN 号或区间，\"all\" 表示 1-4094。留空则使用常见运营商 VLAN 的短列表。"
+msgid "Comma separated ids or ranges, \"all\" for 1-4094. Empty probes the VLANs already configured on the PON interface plus a short list of common ISP VLANs."
+msgstr "逗号分隔的 VLAN 号或区间，\"all\" 表示 1-4094。留空则探测 PON 接口上已配置的 VLAN，外加一组常见运营商 VLAN。"
 
 msgid "DHCP offer"
 msgstr "DHCP Offer"
@@ -31,11 +43,11 @@ msgstr "删除"
 msgid "Discover which 802.1Q VLAN ids carry traffic on the PON uplink. Passive listening never transmits anything; probing sends discovery frames only (ARP request, PPPoE PADI, DHCP DISCOVER) and never binds a lease or a session."
 msgstr "探测 PON 上行承载了哪些 802.1Q VLAN。被动监听不发送任何数据包；主动探测只发送发现帧（ARP 请求、PPPoE PADI、DHCP DISCOVER），绝不会绑定租约或建立会话。"
 
-msgid "Duration (seconds)"
-msgstr "监听时长（秒）"
-
 msgid "Duration"
 msgstr "时长"
+
+msgid "Duration (seconds)"
+msgstr "监听时长（秒）"
 
 msgid "Duration must be between 1 and 86400 seconds."
 msgstr "时长必须在 1 到 86400 秒之间。"
@@ -49,6 +61,12 @@ msgstr "启动扫描失败：%s"
 msgid "Gateway (ARP)"
 msgstr "网关（ARP）"
 
+msgid "How long to wait for replies on each VLAN. Increase this if the DHCP server is slow; probing \"all\" VLANs takes roughly this long per VLAN."
+msgstr "每个 VLAN 等待回复的时长。若 DHCP 服务器响应较慢请调大；探测 \"all\"（全部 VLAN）时，总耗时约为该值乘以 VLAN 数量。"
+
+msgid "IP address used in the ARP probe. A matching ARP reply reveals the gateway address."
+msgstr "ARP 探测使用的 IP 地址；收到对应的 ARP 应答即可得知网关地址。"
+
 msgid "Interface"
 msgstr "接口"
 
@@ -58,14 +76,26 @@ msgstr "任务 %s"
 msgid "Leave empty to auto-detect the PON interface (found via /sys/class/net/*/xpon, typically pon0)."
 msgstr "留空则自动探测 PON 接口（通过 /sys/class/net/*/xpon 识别，通常是 pon0）。"
 
+msgid "Leave empty to use the PON interface MAC. If the ISP only answers the MAC registered for a service VLAN, enter that interface MAC here."
+msgstr "留空则使用 PON 接口的 MAC。若运营商只回应某个业务 VLAN 已登记的 MAC，请在此填写该接口的 MAC。"
+
+msgid "MAC must be six colon-separated hex octets, e.g. aa:bb:cc:dd:ee:ff."
+msgstr "MAC 必须为 6 组冒号分隔的十六进制字节，例如 aa:bb:cc:dd:ee:ff。"
+
 msgid "Mode"
 msgstr "模式"
+
+msgid "No live VLANs found among the probed candidates. Try a longer reply wait, a different source MAC or vendor class, or probing all VLANs."
+msgstr "在所探测的候选 VLAN 中未发现存活 VLAN。可尝试延长回复等待时间、更换探测源 MAC 或厂商标识，或探测全部 VLAN。"
+
+msgid "No packets captured during this scan window."
+msgstr "本次扫描窗口内没有捕获到任何数据包。"
 
 msgid "No scan jobs yet. Start one above; jobs survive page reloads and LuCI logins until the device reboots."
 msgstr "还没有扫描任务。请在上方启动一个；任务会跨页面刷新和 LuCI 重新登录保留，直到设备重启。"
 
-msgid "No packets captured during this scan window."
-msgstr "本次扫描窗口内没有捕获到任何数据包。"
+msgid "Optional DHCP option 60. Some ISPs only answer a DISCOVER carrying their expected vendor string (for example \"MSFT 5.0\" or \"dslforum.org\")."
+msgstr "可选的 DHCP Option 60。部分运营商只回应携带指定厂商字符串的 DISCOVER（例如 \"MSFT 5.0\" 或 \"dslforum.org\"）。"
 
 msgid "PPPoE"
 msgstr "PPPoE"
@@ -79,14 +109,35 @@ msgstr "被动监听（不发送任何数据包）"
 msgid "Probe (discovery frames on candidate VLANs)"
 msgstr "主动探测（向候选 VLAN 发送发现帧）"
 
+msgid "Probe options"
+msgstr "探测选项"
+
+msgid "Probe source MAC"
+msgstr "探测源 MAC"
+
 msgid "Really delete job %s and its results?"
 msgstr "确定删除任务 %s 及其结果吗？"
+
+msgid "Reply wait"
+msgstr "回复等待"
+
+msgid "Reply wait (ms)"
+msgstr "回复等待（毫秒）"
+
+msgid "Reply wait must be between 100 and 60000 ms."
+msgstr "回复等待时间必须在 100 到 60000 毫秒之间。"
+
+msgid "Results"
+msgstr "结果"
+
+msgid "Run log"
+msgstr "运行日志"
 
 msgid "Scan jobs"
 msgstr "扫描任务"
 
-msgid "Results"
-msgstr "结果"
+msgid "Source MAC"
+msgstr "源 MAC"
 
 msgid "Start scan"
 msgstr "启动扫描"
@@ -94,17 +145,20 @@ msgstr "启动扫描"
 msgid "Stop"
 msgstr "停止"
 
-msgid "The scan failed - see the system log for details."
-msgstr "扫描失败——详情请查看系统日志。"
+msgid "The scan failed - see the run log below for details."
+msgstr "扫描失败——详情请查看下方运行日志。"
+
+msgid "The scan failed: %s"
+msgstr "扫描失败：%s"
 
 msgid "The scanner process is no longer running; partial results were kept."
 msgstr "扫描进程已不在运行；已保留部分结果。"
 
-msgid "Traffic classes"
-msgstr "流量分类"
-
 msgid "Total"
 msgstr "合计"
+
+msgid "Traffic classes"
+msgstr "流量分类"
 
 msgid "VLAN"
 msgstr "VLAN"
@@ -115,20 +169,35 @@ msgstr "VLAN %d（第 %d / %d 个）"
 msgid "VLAN Scan"
 msgstr "VLAN 扫描"
 
+msgid "VLAN ids reported as untagged (null) are frames without an 802.1Q tag."
+msgstr "显示为未打标签（null）的 VLAN，表示不带 802.1Q 标签的数据帧。"
+
 msgid "VLAN list must be \"35,100,1000-1010\" or \"all\"."
 msgstr "VLAN 列表必须为 \"35,100,1000-1010\" 或 \"all\"。"
-
-msgid "VLANs"
-msgstr "VLAN 列表"
 
 msgid "VLAN scan control failed: %s"
 msgstr "扫描控制命令执行失败：%s"
 
-msgid "auto-detect"
-msgstr "自动探测"
+msgid "VLANs"
+msgstr "VLAN 列表"
+
+msgid "Vendor class"
+msgstr "厂商标识"
+
+msgid "Vendor class (option 60)"
+msgstr "厂商标识（Option 60）"
+
+msgid "Vendor class must be 1-255 printable ASCII characters."
+msgstr "厂商标识必须为 1-255 个可打印 ASCII 字符。"
 
 msgid "all"
 msgstr "全部"
+
+msgid "auto (PON MAC)"
+msgstr "自动（PON 接口 MAC）"
+
+msgid "auto-detect"
+msgstr "自动探测"
 
 msgid "listening…"
 msgstr "监听中……"
@@ -141,3 +210,36 @@ msgstr "未打标签"
 
 msgid "yes (PADO)"
 msgstr "有（收到 PADO）"
+
+msgid "%d job(s)"
+msgstr "%d 个任务"
+
+msgid "%d running job(s)"
+msgstr "%d 个运行中的任务"
+
+msgid "Job"
+msgstr "任务"
+
+msgid "Latest job (auto)"
+msgstr "最新任务（自动）"
+
+msgid "Auto refresh"
+msgstr "自动刷新"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "View log"
+msgstr "查看日志"
+
+msgid "No scan jobs yet. Logs appear here once a scan has been started."
+msgstr "暂无扫描任务。启动扫描后，日志会显示在这里。"
+
+msgid "This job has produced no log output yet."
+msgstr "该任务尚未产生任何日志输出。"
+
+msgid "%d lines · updated %s"
+msgstr "%d 行 · 更新于 %s"
+
+msgid "Showing the last %d lines of a longer log."
+msgstr "日志较长，仅显示最后 %d 行。"
