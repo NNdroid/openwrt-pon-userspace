@@ -272,11 +272,16 @@ function paramChips(job) {
 		[ _('Interface'), job.interface || _('auto-detect'), true ]
 	];
 	if (job.mode == 'probe') {
-		var vlans = Array.isArray(params.vlans) ? params.vlans : [];
-		var vlanText = !vlans.length ? _('all')
-			: (vlans.length > 12
-				? vlans.slice(0, 12).join(', ') + ' … (+' + (vlans.length - 12) + ')'
-				: vlans.join(', '));
+		/* The scanner writes job.json a moment after ctl reports "running";
+		 * until then the candidate list is unknown, not empty. */
+		var vlanText = '…';
+		if (Array.isArray(params.vlans)) {
+			var vlans = params.vlans;
+			vlanText = !vlans.length ? _('none (no candidates)')
+				: (vlans.length > 12
+					? vlans.slice(0, 12).join(', ') + ' … (+' + (vlans.length - 12) + ')'
+					: vlans.join(', '));
+		}
 		items.push([ _('VLANs'), vlanText, false ]);
 		items.push([ _('Source MAC'), params.mac || _('auto (PON MAC)'), true ]);
 		if (params.probe_wait)
@@ -306,6 +311,7 @@ return view.extend({
 	},
 
 	fetchJobs: function () {
+		var self = this;
 		return ctlExec([ 'list' ]).then(function (reply) {
 			if (!reply || reply.code != 0)
 				return [];
@@ -318,8 +324,22 @@ return view.extend({
 			}
 			if (!Array.isArray(entries))
 				return [];
+
+			/* Finished jobs never change again, but the scanner prints a few
+			 * summary lines AFTER publishing the final status. Keep reading
+			 * for two polls after the transition, then serve from cache.
+			 * This cuts the 3*N rpcd reads per 3s poll down to the three
+			 * needed by the (usually single) running job. */
+			var cache = self.jobCache || (self.jobCache = {});
+			var seen = {};
 			return Promise.all(entries.map(function (entry) {
 				var base = '/tmp/vlanscan/' + entry.id;
+				seen[entry.id] = true;
+				var cached = cache[entry.id];
+				if (entry.status != 'running' && cached &&
+					cached.status == entry.status && cached.settled)
+					return Promise.resolve(cached.job);
+
 				return Promise.all([
 					readText(base + '/job.json'),
 					readText(base + '/results.json'),
@@ -341,9 +361,23 @@ return view.extend({
 						catch (error) { /* partial write, retry next poll */ }
 					}
 					job.log = texts[2] || '';
+					if (entry.status != 'running')
+						cache[entry.id] = {
+							status: entry.status,
+							settled: !!(cached && cached.status == entry.status),
+							job: job
+						};
+					else
+						delete cache[entry.id];
 					return job;
 				});
-			}));
+			})).then(function (jobs) {
+				Object.keys(cache).forEach(function (id) {
+					if (!seen[id])
+						delete cache[id];
+				});
+				return jobs;
+			});
 		});
 	},
 
@@ -510,7 +544,10 @@ return view.extend({
 			body.push(E('div', { 'class': 'vscan-note' }, _('The scan failed - see the run log below for details.')));
 		}
 
-		if (job.results)
+		/* A failed job writes an empty results.json. Showing the
+		 * "no live VLANs, try a longer wait" advice on top of the real
+		 * error would send the user chasing the wrong setting. */
+		if (job.results && job.status != 'failed')
 			body.push(self.renderResults(job));
 
 		return E('div', { 'class': 'vscan-card' }, body);
@@ -985,6 +1022,7 @@ return view.extend({
 
 		self.activeTab = 'jobs';
 		self.jobs = [];
+		self.jobCache = {};
 		self.logSelectedId = '';
 		self.logOptionsSignature = null;
 		self.logLastText = null;

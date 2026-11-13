@@ -1,7 +1,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-vlanscan\n"
-"PO-Revision-Date: 2026-11-13 14:00+0800\n"
+"PO-Revision-Date: 2026-11-13 16:10+0800\n"
 "Last-Translator: OpenWrt LuCI community\n"
 "Language: zh_Hans\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -90,6 +90,9 @@ msgstr "本次扫描窗口内没有捕获到任何数据包。"
 
 msgid "No scan jobs yet. Start one above; jobs survive page reloads and LuCI logins until the device reboots."
 msgstr "还没有扫描任务。请在上方启动一个；任务会跨页面刷新和 LuCI 重新登录保留，直到设备重启。"
+
+msgid "none (no candidates)"
+msgstr "无（没有候选 VLAN）"
 
 msgid "Optional DHCP option 60. Some ISPs only answer a DISCOVER carrying their expected vendor string (for example \"MSFT 5.0\" or \"dslforum.org\")."
 msgstr "可选的 DHCP Option 60。部分运营商只回应携带指定厂商字符串的 DISCOVER（例如 \"MSFT 5.0\" 或 \"dslforum.org\"）。"
@@ -183,9 +186,6 @@ msgstr "厂商标识（Option 60）"
 
 msgid "Vendor class must be 1-255 printable ASCII characters."
 msgstr "厂商标识必须为 1-255 个可打印 ASCII 字符。"
-
-msgid "all"
-msgstr "全部"
 
 msgid "auto (PON MAC)"
 msgstr "自动（PON 接口 MAC）"
