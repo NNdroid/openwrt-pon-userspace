@@ -41,11 +41,20 @@ valid_num() {
 	return 0
 }
 
+# Numeric value within an inclusive range. Bound the digit count first so a
+# huge input cannot overflow shell arithmetic.
+valid_range() {
+	valid_num "$1" || return 1
+	[ "${#1}" -le 9 ] || return 1
+	[ "$1" -ge "$2" ] && [ "$1" -le "$3" ]
+}
+
 # 'all' and 'common' are explicit presets expanded by vlanscan itself.
 # They are never applied implicitly: an omitted list means "only the VLANs
-# already configured on the PON interface".
+# already configured on the PON interface". The scanner accepts these case
+# insensitively, so this whitelist must too.
 valid_vlans() {
-	case "$1" in
+	case "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" in
 		all|common) return 0 ;;
 		*[!0-9,-]*|'') return 1 ;;
 	esac
@@ -87,12 +96,18 @@ cmd_start() {
 	for dir in "$JOB_ROOT"/*/; do
 		[ -d "$dir" ] && count=$((count + 1))
 	done
+	# Drop only as many of the OLDEST finished jobs as needed to make room.
+	# The glob is already in job-id (timestamp) order; running jobs and the
+	# rest of the history must survive. The old loop deleted every finished
+	# job at once, wiping the whole result list on the 20th start.
 	if [ "$count" -ge "$MAX_JOBS" ]; then
 		for dir in "$JOB_ROOT"/*/; do
+			[ "$count" -lt "$MAX_JOBS" ] && break
 			[ -d "$dir" ] || continue
 			local status
 			status="$(cat "$dir/status" 2>/dev/null || echo running)"
-			[ "$status" != "running" ] && rm -rf "$dir"
+			[ "$status" = "running" ] && continue
+			rm -rf "$dir" && count=$((count - 1))
 		done
 	fi
 
@@ -122,7 +137,7 @@ cmd_start() {
 				}
 				;;
 			duration)
-				valid_num "$value" || fail "invalid duration"
+				valid_range "$value" 1 86400 || fail "invalid duration"
 				v_duration="$value"
 				;;
 			vlans)
@@ -130,11 +145,11 @@ cmd_start() {
 				v_vlans="$value"
 				;;
 			probe_wait)
-				valid_num "$value" || fail "invalid probe wait"
+				valid_range "$value" 100 60000 || fail "invalid probe wait"
 				v_probe_wait="$value"
 				;;
 			probe_interval)
-				valid_num "$value" || fail "invalid probe interval"
+				valid_range "$value" 0 60000 || fail "invalid probe interval"
 				v_probe_interval="$value"
 				;;
 			arp_target)

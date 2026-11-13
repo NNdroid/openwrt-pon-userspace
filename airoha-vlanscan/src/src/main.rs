@@ -97,6 +97,15 @@ fn mac_text(mac: &[u8; 6]) -> String {
         .join(":")
 }
 
+/// Replace a state file atomically. LuCI polls these files every few
+/// seconds, so a plain fs::write() can be observed half-written and makes
+/// the viewer drop the job's metadata for that poll.
+fn atomic_write(path: &Path, temporary: &Path, content: &str) {
+    if fs::write(temporary, content).is_ok() {
+        let _ = fs::rename(temporary, path);
+    }
+}
+
 /// Job-mode state file writer. When --job is given the scanner publishes its
 /// lifecycle in plain files so that LuCI (or any other supervisor) can
 /// display progress across sessions:
@@ -143,7 +152,11 @@ impl Job {
             self.params,
             progress
         );
-        let _ = fs::write(self.dir.join("job.json"), content);
+        atomic_write(
+            &self.dir.join("job.json"),
+            &self.dir.join(".job.tmp"),
+            &content,
+        );
         let _ = fs::write(self.dir.join("status"), status);
     }
 
@@ -154,11 +167,11 @@ impl Job {
     /// Write final status and results atomically (tmp file + rename) so a
     /// concurrent reader never sees a partial results.json.
     fn finish(&self, status: &str, results_json: &str) {
-        let results_path = self.dir.join("results.json");
-        let temporary_path = self.dir.join(".results.tmp");
-        if fs::write(&temporary_path, results_json).is_ok() {
-            let _ = fs::rename(&temporary_path, &results_path);
-        }
+        atomic_write(
+            &self.dir.join("results.json"),
+            &self.dir.join(".results.tmp"),
+            results_json,
+        );
         self.publish(status, "{}");
     }
 
@@ -173,9 +186,17 @@ impl Job {
             self.params,
             json_string(error)
         );
-        let _ = fs::write(self.dir.join("job.json"), content);
+        atomic_write(
+            &self.dir.join("job.json"),
+            &self.dir.join(".job.tmp"),
+            &content,
+        );
         let _ = fs::write(self.dir.join("status"), "failed");
-        let _ = fs::write(self.dir.join("results.json"), "[]");
+        atomic_write(
+            &self.dir.join("results.json"),
+            &self.dir.join(".results.tmp"),
+            "[]",
+        );
     }
 }
 
@@ -312,9 +333,13 @@ fn parse_arguments(arguments: &[String]) -> Result<Options> {
             }
             "-i" | "--interface" => options.interface = Some(take("--interface")?),
             "--duration" => {
-                options.duration_seconds = take("--duration")?
+                let seconds: u64 = take("--duration")?
                     .parse()
                     .map_err(|_| "--duration expects seconds".to_string())?;
+                if !(1..=86400).contains(&seconds) {
+                    return Err("--duration expects 1-86400 seconds".into());
+                }
+                options.duration_seconds = seconds;
             }
             "--probe" => options.probe = true,
             "--vlan" => options.vlans = Some(parse_vlan_list(&take("--vlan")?)?),
@@ -322,12 +347,20 @@ fn parse_arguments(arguments: &[String]) -> Result<Options> {
                 let milliseconds: u64 = take("--probe-wait")?
                     .parse()
                     .map_err(|_| "--probe-wait expects milliseconds".to_string())?;
+                // Zero would make every VLAN fail silently; an unbounded
+                // value would let one job occupy the link for hours.
+                if !(100..=60000).contains(&milliseconds) {
+                    return Err("--probe-wait expects 100-60000 milliseconds".into());
+                }
                 options.probe_wait = Duration::from_millis(milliseconds);
             }
             "--probe-interval" => {
                 let milliseconds: u64 = take("--probe-interval")?
                     .parse()
                     .map_err(|_| "--probe-interval expects milliseconds".to_string())?;
+                if milliseconds > 60000 {
+                    return Err("--probe-interval expects 0-60000 milliseconds".into());
+                }
                 options.probe_interval = Duration::from_millis(milliseconds);
             }
             "--arp-target" => {
@@ -402,42 +435,56 @@ fn interface_mac(name: &str) -> Result<[u8; 6]> {
     packet::parse_mac(&text).ok_or_else(|| format!("invalid mac address for {name}").into())
 }
 
-/// VLAN ids already configured on the PON parent. /proc/net/vlan/config is
-/// the authoritative source; interface-name suffixes are used as a fallback
-/// when the 802.1Q module is built in and does not expose that file.
-fn configured_vlans(interface: &str) -> Vec<u16> {
+/// VLAN ids already configured on the PON parent.
+///
+/// /proc/net/vlan/config is authoritative when present, but it can also be
+/// incomplete or absent (802.1Q built into the kernel). Interface names such
+/// as `pon0.140` are therefore ALWAYS consulted as a second source. The old
+/// either/or fallback silently missed VLANs whenever the config file listed
+/// just one of several subinterfaces.
+///
+/// Kept as a pure function over already-read text/names so the merge can be
+/// unit-tested without touching sysfs.
+fn merge_configured_vlans(config: &str, names: &[String], interface: &str) -> Vec<u16> {
     let mut vlans: Vec<u16> = Vec::new();
-    if let Ok(text) = fs::read_to_string(VLAN_CONFIG) {
-        for line in text.lines().skip(2) {
-            let fields: Vec<&str> = line.split('|').map(str::trim).collect();
-            if fields.len() < 3 || fields[2] != interface {
-                continue;
-            }
-            if let Ok(vlan) = fields[1].parse::<u16>() {
-                if (1..=4094).contains(&vlan) {
-                    vlans.push(vlan);
-                }
+    for line in config.lines().skip(2) {
+        let fields: Vec<&str> = line.split('|').map(str::trim).collect();
+        if fields.len() < 3 || fields[2] != interface {
+            continue;
+        }
+        if let Ok(vlan) = fields[1].parse::<u16>() {
+            if (1..=4094).contains(&vlan) {
+                vlans.push(vlan);
             }
         }
     }
-    if vlans.is_empty() {
-        let prefix = format!("{interface}.");
-        if let Ok(entries) = fs::read_dir(NET_CLASS) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if let Some(suffix) = name.strip_prefix(&prefix) {
-                    if let Ok(vlan) = suffix.parse::<u16>() {
-                        if (1..=4094).contains(&vlan) {
-                            vlans.push(vlan);
-                        }
-                    }
-                }
+    let prefix = format!("{interface}.");
+    for name in names {
+        let Some(suffix) = name.strip_prefix(&prefix) else {
+            continue;
+        };
+        if let Ok(vlan) = suffix.parse::<u16>() {
+            if (1..=4094).contains(&vlan) {
+                vlans.push(vlan);
             }
         }
     }
     vlans.sort_unstable();
     vlans.dedup();
     vlans
+}
+
+fn configured_vlans(interface: &str) -> Vec<u16> {
+    let config = fs::read_to_string(VLAN_CONFIG).unwrap_or_default();
+    let names: Vec<String> = fs::read_dir(NET_CLASS)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    merge_configured_vlans(&config, &names, interface)
 }
 
 /// The exact candidate list a probe run will use. Shared by run() (for the
@@ -505,17 +552,11 @@ fn passive_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&J
     eprintln!("vlanscan: listening on {interface} for {duration}s (passive, no packets are sent)");
 
     while !stopped() && Instant::now() < deadline {
-        let Some(received) = socket.receive(&mut buffer)? else {
-            continue;
-        };
-        // Outgoing frames tell the same VLAN story; count them too.
-        let Some(info) = packet::analyze(received.data, received.vlan) else {
-            continue;
-        };
+        // Time-based upkeep must run BEFORE receive(): the socket has a
+        // 250ms timeout and returns None on a quiet link. Keeping this work
+        // inside the "got a frame" path used to freeze the LuCI progress bar
+        // at 0% and emit no heartbeat at all whenever the line went silent.
         let now = relative_seconds(start);
-        record(stats.entry(info.vlan).or_default(), &info.class, now);
-        total += 1;
-
         if let Some(job) = job {
             let due = match last_job_update {
                 Some(last) => last.elapsed() >= Duration::from_secs(1),
@@ -523,9 +564,8 @@ fn passive_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&J
             };
             if due {
                 last_job_update = Some(Instant::now());
-                let elapsed = relative_seconds(start);
                 job.update_progress(&format!(
-                    r#"{{"seconds":{elapsed:.0},"total_seconds":{duration}}}"#
+                    r#"{{"seconds":{now:.0},"total_seconds":{duration}}}"#
                 ));
             }
         }
@@ -538,6 +578,16 @@ fn passive_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&J
             last_heartbeat = Instant::now();
             eprintln!("vlanscan: {total} frames in {now:.0}s of {duration}s (passive)...");
         }
+
+        let Some(received) = socket.receive(&mut buffer)? else {
+            continue;
+        };
+        // Outgoing frames tell the same VLAN story; count them too.
+        let Some(info) = packet::analyze(received.data, received.vlan) else {
+            continue;
+        };
+        record(stats.entry(info.vlan).or_default(), &info.class, now);
+        total += 1;
     }
     if !options.json {
         eprintln!(
@@ -743,6 +793,11 @@ fn probe_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&Job
     }
 
     let mut alive: Vec<(u16, ProbeOutcome)> = Vec::new();
+    // Publishing job.json on every VLAN would mean 4094 writes for an "all"
+    // scan. Throttle to once per second, but always publish the last one so
+    // the progress bar can actually reach 100%.
+    let mut last_progress: Option<Instant> = None;
+    let mut consecutive_errors = 0u32;
     for (position, vlan) in candidates.iter().enumerate() {
         if stopped() {
             break;
@@ -754,18 +809,39 @@ fn probe_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&Job
             }
         }
         if let Some(job) = job {
-            job.update_progress(&format!(
-                r#"{{"index":{},"total":{},"vlan":{}}}"#,
-                position + 1,
-                candidates.len(),
-                vlan
-            ));
+            let due = match last_progress {
+                Some(last) => last.elapsed() >= Duration::from_secs(1),
+                None => true,
+            };
+            if due || position + 1 == candidates.len() {
+                last_progress = Some(Instant::now());
+                job.update_progress(&format!(
+                    r#"{{"index":{},"total":{},"vlan":{}}}"#,
+                    position + 1,
+                    candidates.len(),
+                    vlan
+                ));
+            }
         }
         let outcome = match probe_vlan(ifindex, probe_mac, *vlan, options, &socket) {
-            Ok(outcome) => outcome,
+            Ok(outcome) => {
+                consecutive_errors = 0;
+                outcome
+            }
             Err(error) => {
+                consecutive_errors += 1;
                 if !options.json {
                     eprintln!("vlanscan: vlan {vlan}: {error}");
+                }
+                // A failing raw socket fails the same way for every VLAN.
+                // Without this guard a dead link turns an "all" scan into
+                // hours of identical errors instead of one clear failure.
+                if consecutive_errors >= 5 {
+                    return Err(format!(
+                        "aborting after {consecutive_errors} consecutive probe failures \
+                         (last on VLAN {vlan}): {error}"
+                    )
+                    .into());
                 }
                 continue;
             }
@@ -971,5 +1047,58 @@ mod tests {
         options.vlans = Some(parse_vlan_list("common").unwrap());
         let candidates = build_candidates(&options, "vlanscan-test-no-such-iface");
         assert_eq!(candidates.len(), COMMON_VLANS.len());
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|item| item.to_string()).collect()
+    }
+
+    #[test]
+    fn configured_vlans_merge_config_and_sysfs() {
+        // The config file lists only 130, while pon0.140 exists as a named
+        // subinterface. The old either/or fallback returned just 130.
+        let config = "VLAN Dev name | VLAN ID\n\
+                      Name-Type: VLAN_NAME_TYPE_RAW_PLUS_VID_NO_PAD\n\
+                      pon0.130 | 130 | pon0\n\
+                      eth1.200 | 200 | eth1\n";
+        let list = names(&["pon0", "pon0.130", "pon0.140", "wan", "eth1.200"]);
+        assert_eq!(
+            merge_configured_vlans(config, &list, "pon0"),
+            vec![130, 140]
+        );
+        // Foreign parents must never leak into this interface's candidates.
+        assert!(merge_configured_vlans(config, &list, "eth2").is_empty());
+    }
+
+    #[test]
+    fn configured_vlans_work_without_proc_file() {
+        let list = names(&["lo", "pon0", "pon0.130", "pon0.140", "pon0.4095"]);
+        assert_eq!(merge_configured_vlans("", &list, "pon0"), vec![130, 140]);
+    }
+
+    #[test]
+    fn numeric_arguments_are_range_checked() {
+        fn args(values: &[&str]) -> Vec<String> {
+            values.iter().map(|value| value.to_string()).collect()
+        }
+        assert!(parse_arguments(&args(&["--probe-wait", "0"])).is_err());
+        assert!(parse_arguments(&args(&["--probe-wait", "99"])).is_err());
+        assert!(parse_arguments(&args(&["--probe-wait", "999999999999"])).is_err());
+        assert!(parse_arguments(&args(&["--probe-wait", "500"])).is_ok());
+        assert!(parse_arguments(&args(&["--duration", "0"])).is_err());
+        assert!(parse_arguments(&args(&["--duration", "86401"])).is_err());
+        assert!(parse_arguments(&args(&["--duration", "60"])).is_ok());
+        assert!(parse_arguments(&args(&["--probe-interval", "60001"])).is_err());
+        assert!(parse_arguments(&args(&["--probe-interval", "0"])).is_ok());
+    }
+
+    #[test]
+    fn configured_vlans_deduplicate_and_reject_out_of_range() {
+        let config = "header\nheader\npon0.130 | 130 | pon0\npon0.9999 | 9999 | pon0\n";
+        let list = names(&["pon0.130", "pon0.0", "pon0.140", "pon0.4095"]);
+        assert_eq!(
+            merge_configured_vlans(config, &list, "pon0"),
+            vec![130, 140]
+        );
     }
 }

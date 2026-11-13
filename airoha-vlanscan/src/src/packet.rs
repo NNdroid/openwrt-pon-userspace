@@ -628,6 +628,13 @@ pub fn build_dhcp_discover(
     pseudo.extend_from_slice(&udp_length.to_be_bytes());
     pseudo.extend_from_slice(&udp);
     let udp_checksum = checksum(&pseudo);
+    // A computed value of zero means "no checksum" in UDP/IPv4. Substitute
+    // the equivalent all-ones encoding so strict servers still accept it.
+    let udp_checksum = if udp_checksum == 0 {
+        0xffff
+    } else {
+        udp_checksum
+    };
     udp[6..8].copy_from_slice(&udp_checksum.to_be_bytes());
 
     let mut frame = Vec::with_capacity(14 + ip.len() + udp.len());
@@ -742,6 +749,25 @@ mod tests {
         assert_eq!(total_length, frame.len() - 14);
         assert_eq!(total_length, 20 + udp_length);
         assert!(total_length >= 20 + udp_length); // UDP fits inside IPv4 payload
+    }
+
+    #[test]
+    fn dhcp_udp_checksum_is_valid_and_never_zero() {
+        for xid in [0u32, 1, 0x1234, 0x2b3c4d5e, 0xffff_ffff] {
+            let frame = build_dhcp_discover(&[0x33; 6], xid, None);
+            let ip = &frame[14..];
+            let udp = &ip[20..];
+            let udp_length = u16::from_be_bytes([udp[4], udp[5]]);
+            assert_ne!(u16::from_be_bytes([udp[6], udp[7]]), 0);
+            // Recomputing the pseudo-header checksum with the field in place
+            // must yield zero (one's-complement sum == 0xffff).
+            let mut pseudo = Vec::new();
+            pseudo.extend_from_slice(&ip[12..20]);
+            pseudo.extend_from_slice(&[0, 17]);
+            pseudo.extend_from_slice(&udp_length.to_be_bytes());
+            pseudo.extend_from_slice(udp);
+            assert_eq!(checksum(&pseudo), 0, "xid {xid:#x}");
+        }
     }
 
     #[test]
