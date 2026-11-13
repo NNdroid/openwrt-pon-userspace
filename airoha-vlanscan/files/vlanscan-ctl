@@ -14,6 +14,7 @@
 #   status        running | completed | stopped | failed | interrupted
 #   job.json      metadata + live progress (written by vlanscan)
 #   results.json  final results (written by vlanscan on completion)
+#   log           scanner stdout/stderr, including per-VLAN probe errors
 #
 # All external input is validated here before it ever reaches a command
 # line; the scanner itself treats the job directory as untrusted-free state.
@@ -55,6 +56,23 @@ valid_ip() {
 	return 0
 }
 
+# Exactly six colon-separated hexadecimal octets: aa:bb:cc:dd:ee:ff
+valid_mac() {
+	case "$1" in
+		[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+# DHCP option 60 may legitimately contain spaces ("MSFT 5.0"). Values are
+# passed as a single quoted argv entry, so only length is checked here;
+# vlanscan itself enforces the printable-ASCII range.
+valid_vendor_class() {
+	[ -n "$1" ] || return 1
+	[ "${#1}" -le 255 ] || return 1
+	return 0
+}
+
 cmd_start() {
 	local mode="$1"
 	shift
@@ -84,7 +102,12 @@ cmd_start() {
 	done
 	mkdir -p "$dir" || fail "cannot create job dir"
 
-	local args="--job $dir"
+	# Validate and collect every key=value into plain variables first, then
+	# rebuild the argument vector with `set --`. Building one big string and
+	# invoking `vlanscan $args` would word-split values containing spaces
+	# (a DHCP vendor class such as "MSFT 5.0") into two argv entries.
+	local v_iface="" v_duration="" v_vlans="" v_probe_wait="" v_probe_interval=""
+	local v_arp_target="" v_mac="" v_vendor_class=""
 	while [ $# -gt 0 ]; do
 		local key="${1%%=*}"
 		local value="${1#*=}"
@@ -92,35 +115,62 @@ cmd_start() {
 			interface)
 				[ -n "$value" ] && {
 					valid_iface "$value" || fail "invalid interface"
-					args="$args -i $value"
+					v_iface="$value"
 				}
 				;;
 			duration)
 				valid_num "$value" || fail "invalid duration"
-				args="$args --duration $value"
+				v_duration="$value"
 				;;
 			vlans)
 				valid_vlans "$value" || fail "invalid vlan list"
-				args="$args --vlan $value"
+				v_vlans="$value"
 				;;
 			probe_wait)
 				valid_num "$value" || fail "invalid probe wait"
-				args="$args --probe-wait $value"
+				v_probe_wait="$value"
+				;;
+			probe_interval)
+				valid_num "$value" || fail "invalid probe interval"
+				v_probe_interval="$value"
 				;;
 			arp_target)
 				valid_ip "$value" || fail "invalid arp target"
-				args="$args --arp-target $value"
+				v_arp_target="$value"
+				;;
+			mac)
+				[ -n "$value" ] && {
+					valid_mac "$value" || fail "invalid mac address"
+					v_mac="$value"
+				}
+				;;
+			vendor_class)
+				[ -n "$value" ] && {
+					valid_vendor_class "$value" || fail "invalid vendor class"
+					v_vendor_class="$value"
+				}
 				;;
 		esac
 		shift
 	done
 
-	[ "$mode" = "probe" ] && args="$args --probe"
+	set -- --job "$dir"
+	[ -n "$v_iface" ] && set -- "$@" -i "$v_iface"
+	[ -n "$v_duration" ] && set -- "$@" --duration "$v_duration"
+	[ -n "$v_vlans" ] && set -- "$@" --vlan "$v_vlans"
+	[ -n "$v_probe_wait" ] && set -- "$@" --probe-wait "$v_probe_wait"
+	[ -n "$v_probe_interval" ] && set -- "$@" --probe-interval "$v_probe_interval"
+	[ -n "$v_arp_target" ] && set -- "$@" --arp-target "$v_arp_target"
+	[ -n "$v_mac" ] && set -- "$@" --mac "$v_mac"
+	[ -n "$v_vendor_class" ] && set -- "$@" --vendor-class "$v_vendor_class"
+	[ "$mode" = "probe" ] && set -- "$@" --probe
 
 	# Detached double-fork style start; vlanscan writes its own pid into
-	# the job dir, so this shell does not need to track the child.
+	# the job dir, so this shell does not need to track the child. Keep
+	# stdout/stderr: per-VLAN probe failures used to be discarded to
+	# /dev/null, making a silent empty result impossible to diagnose.
 	echo "running" > "$dir/status"
-	( setsid vlanscan $args >/dev/null 2>&1 </dev/null & )
+	( setsid vlanscan "$@" >"$dir/log" 2>&1 </dev/null & )
 	echo "{\"id\":\"$id\",\"status\":\"running\"}"
 }
 

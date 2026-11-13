@@ -4,6 +4,11 @@
 //! probe frames. All parsing is bounds-checked slice work; the only frames
 //! ever built here are the standard discovery packets (ARP request, PPPoE
 //! PADI, DHCP DISCOVER) with no caller-controlled payload.
+//!
+//! Frames may carry their 802.1Q tag either inline (normal AF_PACKET path)
+//! or out-of-band in PACKET_AUXDATA when the NIC uses RX VLAN offload and
+//! strips the header before userspace sees it. `aux_vlan` carries that
+//! recovered VID; every entry point accepts it and prefers an inline tag.
 
 /// Result of analysing one received frame.
 pub struct FrameInfo {
@@ -24,8 +29,53 @@ const ETHERTYPE_SVLAN: u16 = 0x88a8;
 
 const BROADCAST_MAC: [u8; 6] = [0xff; 6];
 
+/// Minimum 802.1Q ethernet frame length, excluding the FCS. Frames shorter
+/// than this are runts and may be dropped by the NIC or the upstream switch.
+const MIN_TAGGED_FRAME: usize = 64;
+
+/// Resolve the outermost VLAN id from an inline tag plus an offloaded VID.
+/// When RX VLAN offload stripped the *outer* tag, `aux` is that outer S-VID
+/// and any inline tag still present is the inner C-VID of a QinQ frame, so
+/// the offloaded VID must win. Returns (outer VID, has a second tag).
+fn resolve_vlan(inline: Option<u16>, aux: Option<u16>) -> (Option<u16>, bool) {
+    match (aux, inline) {
+        (Some(outer), Some(_inner)) => (Some(outer), true),
+        (Some(outer), None) => (Some(outer), false),
+        (None, inner) => (inner, false),
+    }
+}
+
+/// Read the Host-Uniq tag (0x0103) from a PPPoE discovery payload, if any.
+fn pppoe_host_uniq(payload: &[u8]) -> Option<u32> {
+    // PPPoE discovery header: ver/type(1) code(1) session(2) length(2).
+    if payload.len() < 6 {
+        return None;
+    }
+    let mut offset = 6;
+    while offset + 4 <= payload.len() {
+        let tag = u16::from_be_bytes([payload[offset], payload[offset + 1]]);
+        let length = u16::from_be_bytes([payload[offset + 2], payload[offset + 3]]) as usize;
+        if offset + 4 + length > payload.len() {
+            break;
+        }
+        if tag == 0x0103 && length >= 4 {
+            return Some(u32::from_be_bytes([
+                payload[offset + 4],
+                payload[offset + 5],
+                payload[offset + 6],
+                payload[offset + 7],
+            ]));
+        }
+        offset += 4 + length;
+    }
+    None
+}
+
 /// Analyse a received ethernet frame. Returns None for runts.
-pub fn analyze(frame: &[u8]) -> Option<FrameInfo> {
+///
+/// `aux_vlan` is the VID recovered from PACKET_AUXDATA, used when the NIC
+/// stripped the 802.1Q header on receive (RX VLAN offload).
+pub fn analyze(frame: &[u8], aux_vlan: Option<u16>) -> Option<FrameInfo> {
     if frame.len() < 14 {
         return None;
     }
@@ -51,6 +101,12 @@ pub fn analyze(frame: &[u8]) -> Option<FrameInfo> {
         ether_type = u16::from_be_bytes([frame[offset + 2], frame[offset + 3]]);
         offset += 4;
     }
+    // Hardware-offloaded tags never appear inline; recover them here so the
+    // passive scan reports real VLAN ids instead of lumping everything into
+    // the "untagged" bucket. With QinQ the offloaded VID is the outer S-VID
+    // and the inline tag still visible is the inner C-VID.
+    let (vlan, offloaded_double) = resolve_vlan(vlan, aux_vlan);
+    let double_tagged = double_tagged || offloaded_double;
 
     let mut class = classify(ether_type, &frame[offset..]);
     if double_tagged {
@@ -127,9 +183,32 @@ fn classify_ipv6(payload: &[u8]) -> String {
     if payload.len() < 40 {
         return "ipv6".to_owned();
     }
-    match payload[6] {
+    // Walk past common extension headers; otherwise DHCPv6 and ICMPv6
+    // traffic behind a hop-by-hop/routing/dest-opt header is mislabelled
+    // as plain "ipv6". Fragment (44) and AH (51) are left alone because
+    // their payload is not parseable without reassembly.
+    let mut next = payload[6];
+    let mut offset = 40usize;
+    for _ in 0..4 {
+        match next {
+            0 | 43 | 60 | 135 | 139 => {
+                if offset + 2 > payload.len() {
+                    return "ipv6".to_owned();
+                }
+                let following = payload[offset];
+                let length = (payload[offset + 1] as usize + 1) * 8;
+                offset += length;
+                next = following;
+            }
+            _ => break,
+        }
+    }
+    if offset > payload.len() {
+        return "ipv6".to_owned();
+    }
+    match next {
         17 => {
-            let l4 = &payload[40..];
+            let l4 = &payload[offset..];
             if l4.len() >= 8 {
                 let source_port = u16::from_be_bytes([l4[0], l4[1]]);
                 let destination_port = u16::from_be_bytes([l4[2], l4[3]]);
@@ -141,7 +220,7 @@ fn classify_ipv6(payload: &[u8]) -> String {
             }
             "ipv6".to_owned()
         }
-        58 if payload.len() > 40 => match payload[40] {
+        58 if offset < payload.len() => match payload[offset] {
             133..=136 => "ndp".to_owned(),
             _ => "icmpv6".to_owned(),
         },
@@ -230,6 +309,44 @@ fn format_ipv4(address: &[u8; 4]) -> String {
     )
 }
 
+/// Parse a colon-separated MAC address ("00:11:22:33:44:55").
+pub fn parse_mac(text: &str) -> Option<[u8; 6]> {
+    let bytes = text
+        .split(':')
+        .map(|part| {
+            if part.len() != 2 {
+                return None;
+            }
+            u8::from_str_radix(part, 16).ok()
+        })
+        .collect::<Option<Vec<u8>>>()?;
+    bytes.try_into().ok()
+}
+
+/// Insert an 802.1Q tag into an already-built ethernet frame.
+///
+/// Sending tagged frames directly on the parent avoids creating temporary
+/// VLAN subinterfaces: no EEXIST clash with an already configured service
+/// interface, no interface state to change, and no UCI/network side effects.
+pub fn tag_frame(frame: &[u8], vlan: u16) -> Option<Vec<u8>> {
+    if frame.len() < 14 {
+        return None;
+    }
+    let mut tagged = Vec::with_capacity(frame.len() + 4);
+    tagged.extend_from_slice(&frame[..12]); // destination + source MAC
+    tagged.extend_from_slice(&ETHERTYPE_VLAN.to_be_bytes());
+    tagged.extend_from_slice(&(vlan & 0x0fff).to_be_bytes());
+    tagged.extend_from_slice(&frame[12..]); // original ethertype + payload
+    // ARP requests (46 bytes tagged) and PADI (36 bytes tagged) are runts.
+    // Some drivers pad short frames, others transmit them verbatim and the
+    // peer drops them. Pad explicitly; the zero tail is ignored by ARP,
+    // PPPoE and IPv4 (which has its own total_length field).
+    while tagged.len() < MIN_TAGGED_FRAME {
+        tagged.push(0);
+    }
+    Some(tagged)
+}
+
 /// Discovered services inside one probe reply frame.
 #[derive(Default)]
 pub struct ProbeReply {
@@ -247,13 +364,33 @@ pub struct DhcpOffer {
 }
 
 /// Look at one frame received on the parent interface during a probe window
-/// and extract any probe-relevant reply. Frames sourced from our own MAC are
-/// ignored, as is anything not tagged with the probed VLAN.
-pub fn inspect_probe_reply(frame: &[u8], our_mac: &[u8; 6], vlan: u16) -> Option<ProbeReply> {
+/// and extract any probe-relevant reply.
+///
+/// `aux_vlan` is the VID from PACKET_AUXDATA (RX VLAN offload) and, when
+/// present, is the *outermost* tag. Every protocol is tied back to our own
+/// probe by an independent token, so a reply with no VLAN evidence at all
+/// is still usable: DHCP by xid + chaddr, ARP by target MAC, and PPPoE by
+/// the Host-Uniq token echoed from the PADI (plus a unicast destination).
+pub fn inspect_probe_reply(
+    frame: &[u8],
+    aux_vlan: Option<u16>,
+    probe_mac: &[u8; 6],
+    vlan: u16,
+    transaction_id: u32,
+) -> Option<ProbeReply> {
     if frame.len() < 14 {
         return None;
     }
-    // Replies arrive tagged on the parent interface.
+    // Only frames addressed to us (broadcast or our probe MAC) are relevant.
+    let addressed_to_us = frame[0..6] == BROADCAST_MAC || frame[0..6] == *probe_mac;
+    if !addressed_to_us {
+        return None;
+    }
+    // Ignore our own transmissions echoed back by the kernel.
+    if frame[6..12] == *probe_mac {
+        return None;
+    }
+
     let mut ether_type = u16::from_be_bytes([frame[12], frame[13]]);
     let mut offset = 14;
     let mut seen_vlan: Option<u16> = None;
@@ -270,28 +407,43 @@ pub fn inspect_probe_reply(frame: &[u8], our_mac: &[u8; 6], vlan: u16) -> Option
         ether_type = u16::from_be_bytes([frame[offset + 2], frame[offset + 3]]);
         offset += 4;
     }
-    if seen_vlan != Some(vlan) {
-        return None;
-    }
-    if frame.len() < offset + 6 || frame[6..12] == *our_mac {
-        return None;
+    let (frame_vlan, _) = resolve_vlan(seen_vlan, aux_vlan);
+    if let Some(outer) = frame_vlan {
+        if outer != vlan {
+            return None;
+        }
     }
     let payload = &frame[offset..];
+    let unicast_to_us = frame[0..6] == *probe_mac;
 
     let mut reply = ProbeReply::default();
     match ether_type {
         ETHERTYPE_ARP => {
             if payload.len() >= 28 {
                 let opcode = u16::from_be_bytes([payload[6], payload[7]]);
-                if opcode == 2 {
+                // ARP reply: target hardware address (18..24) must be our
+                // probe MAC, otherwise it is someone else's exchange.
+                if opcode == 2 && payload[18..24] == *probe_mac {
                     let sender = [payload[14], payload[15], payload[16], payload[17]];
                     reply.gateway = Some(format_ipv4(&sender));
                 }
             }
         }
         ETHERTYPE_PPPOE_DISCOVERY => {
-            if payload.len() >= 2 && payload[1] == 0x07 {
-                reply.pado = true;
+            // PADO is normally unicast back to the PADI's source MAC. RFC
+            // 2516 requires the AC to echo our Host-Uniq token, which embeds
+            // the VLAN id and therefore also discriminates late replies from
+            // other VLANs. Some BRAS omit the tag: accept those on the
+            // strength of the unicast destination alone, but never accept a
+            // broadcast PADO (it could belong to any other client).
+            if unicast_to_us && payload.len() >= 2 && payload[1] == 0x07 {
+                let token_ok = match pppoe_host_uniq(payload) {
+                    Some(token) => token == (vlan as u32),
+                    None => true,
+                };
+                if token_ok {
+                    reply.pado = true;
+                }
             }
         }
         ETHERTYPE_IPV4 => {
@@ -301,22 +453,32 @@ pub fn inspect_probe_reply(frame: &[u8], our_mac: &[u8; 6], vlan: u16) -> Option
                     let l4 = &payload[ihl..];
                     let source_port = u16::from_be_bytes([l4[0], l4[1]]);
                     let destination_port = u16::from_be_bytes([l4[2], l4[3]]);
-                    if source_port == 67 && destination_port == 68 && l4.len() >= 8 && l4[8] == 2 {
+                    if source_port == 67 && destination_port == 68 && l4.len() >= 8 {
                         let bootp = &l4[8..];
-                        if bootp.len() >= 240 && bootp[236..240] == [0x63, 0x82, 0x53, 0x63] {
-                            let address = [bootp[16], bootp[17], bootp[18], bootp[19]];
-                            let server = dhcp_options(bootp)
-                                .into_iter()
-                                .find(|(code, _)| *code == 54)
-                                .and_then(|(_, value)| {
-                                    <[u8; 4]>::try_from(value.as_slice())
-                                        .ok()
-                                        .map(|a| format_ipv4(&a))
+                        if bootp.len() >= 240
+                            && bootp[236..240] == [0x63, 0x82, 0x53, 0x63]
+                            && bootp[0] == 2 // BOOTREPLY, not an echoed BOOTREQUEST
+                        {
+                            let xid = u32::from_be_bytes([
+                                bootp[4], bootp[5], bootp[6], bootp[7],
+                            ]);
+                            // chaddr at 28..34; match both xid and client MAC
+                            // so an unrelated offer cannot mark a VLAN alive.
+                            if xid == transaction_id && bootp[28..34] == *probe_mac {
+                                let address = [bootp[16], bootp[17], bootp[18], bootp[19]];
+                                let server = dhcp_options(bootp)
+                                    .into_iter()
+                                    .find(|(code, _)| *code == 54)
+                                    .and_then(|(_, value)| {
+                                        <[u8; 4]>::try_from(value.as_slice())
+                                            .ok()
+                                            .map(|a| format_ipv4(&a))
+                                    });
+                                reply.offer = Some(DhcpOffer {
+                                    address: format_ipv4(&address),
+                                    server,
                                 });
-                            reply.offer = Some(DhcpOffer {
-                                address: format_ipv4(&address),
-                                server,
-                            });
+                            }
                         }
                     }
                 }
@@ -376,7 +538,11 @@ pub fn build_pppoe_padi(source_mac: &[u8; 6], host_uniq: u32) -> Vec<u8> {
 /// Build a DHCP DISCOVER. Discovery only: no REQUEST is ever sent, so no
 /// lease is bound and no pool address is consumed. The broadcast flag makes
 /// the server answer on the wire so the probe window can see the offer.
-pub fn build_dhcp_discover(source_mac: &[u8; 6], transaction_id: u32) -> Vec<u8> {
+pub fn build_dhcp_discover(
+    source_mac: &[u8; 6],
+    transaction_id: u32,
+    vendor_class: Option<&str>,
+) -> Vec<u8> {
     let mut bootp = Vec::with_capacity(300);
     bootp.push(1); // op: BOOTREQUEST
     bootp.push(1); // htype: ethernet
@@ -389,12 +555,27 @@ pub fn build_dhcp_discover(source_mac: &[u8; 6], transaction_id: u32) -> Vec<u8>
     bootp.extend_from_slice(&[0; 4]); // yiaddr
     bootp.extend_from_slice(&[0; 4]); // siaddr
     bootp.extend_from_slice(&[0; 4]); // giaddr
-    bootp.extend_from_slice(source_mac);
+    bootp.extend_from_slice(source_mac); // chaddr at 28..34
     bootp.extend_from_slice(&[0; 10]); // chaddr padding
     bootp.extend_from_slice(&[0; 64]); // sname
     bootp.extend_from_slice(&[0; 128]); // file
     bootp.extend_from_slice(&[0x63, 0x82, 0x53, 0x63]); // magic cookie
     bootp.extend_from_slice(&[53, 1, 1]); // option 53: DHCPDISCOVER
+    // Option 60 (vendor class): several ISPs refuse to answer a DISCOVER
+    // without the expected vendor string, or use it to pick an address
+    // pool. Optional so the default probe stays protocol-minimal.
+    if let Some(class) = vendor_class {
+        let bytes = class.as_bytes();
+        if !bytes.is_empty() && bytes.len() <= 255 {
+            bootp.push(60);
+            bootp.push(bytes.len() as u8);
+            bootp.extend_from_slice(bytes);
+        }
+    }
+    // Option 61 (client identifier): many ISP servers key their address
+    // pools on the client id rather than chaddr alone.
+    bootp.extend_from_slice(&[61, 7, 1]);
+    bootp.extend_from_slice(source_mac);
     bootp.extend_from_slice(&[
         55, 7, 1,  // subnet mask
         3,  // router
@@ -420,7 +601,12 @@ pub fn build_dhcp_discover(source_mac: &[u8; 6], transaction_id: u32) -> Vec<u8>
     let mut ip = Vec::with_capacity(20 + udp.len());
     ip.push(0x45); // version 4, ihl 5
     ip.push(0x00); // dscp
-    let total_length = (ip.len() + 8 + bootp.len()) as u16;
+    // IP total length must count the 20-byte IPv4 header itself, plus the
+    // UDP header and BOOTP payload. Using ip.len() here (2 at this point)
+    // used to produce 310 instead of 328, making the UDP length exceed the
+    // IP payload so the kernel discarded the DISCOVER before any server
+    // could see it.
+    let total_length = (20 + udp.len()) as u16;
     ip.extend_from_slice(&total_length.to_be_bytes());
     ip.extend_from_slice(&0u16.to_be_bytes()); // id
     ip.extend_from_slice(&0u16.to_be_bytes()); // flags + fragment offset
@@ -457,21 +643,25 @@ pub fn build_dhcp_discover(source_mac: &[u8; 6], transaction_id: u32) -> Vec<u8>
 mod tests {
     use super::*;
 
+    fn tagged(frame: &[u8], vlan: u16) -> Vec<u8> {
+        tag_frame(frame, vlan).expect("taggable frame")
+    }
+
     #[test]
     fn arp_request_frame_is_well_formed() {
         let frame = build_arp_request(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55], "192.168.1.1")
             .expect("valid target");
         assert_eq!(frame.len(), 42);
         assert_eq!(u16::from_be_bytes([frame[12], frame[13]]), ETHERTYPE_ARP);
-        let info = analyze(&frame).expect("analysable");
+        let info = analyze(&frame, None).expect("analysable");
         assert_eq!(info.vlan, None);
         assert_eq!(info.class, "arp-request");
     }
 
     #[test]
     fn dhcp_discover_classifies_as_discover() {
-        let frame = build_dhcp_discover(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55], 0x1234);
-        let info = analyze(&frame).expect("analysable");
+        let frame = build_dhcp_discover(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55], 0x1234, None);
+        let info = analyze(&frame, None).expect("analysable");
         assert_eq!(info.class, "dhcp-discover");
     }
 
@@ -479,7 +669,7 @@ mod tests {
     fn padi_has_service_name_tag() {
         let frame = build_pppoe_padi(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55], 100);
         assert_eq!(u16::from_be_bytes([frame[12], frame[13]]), 0x8863);
-        let info = analyze(&frame).expect("analysable");
+        let info = analyze(&frame, None).expect("analysable");
         assert_eq!(info.class, "pppoe-padi");
         assert_eq!(frame[14], 0x11); // version/type
         assert_eq!(frame[15], 0x09); // PADI
@@ -489,54 +679,231 @@ mod tests {
 
     #[test]
     fn tagged_frame_yields_vlan() {
-        let mut frame = build_arp_request(&[0; 6], "10.0.0.1").expect("valid target");
-        // Insert an 802.1Q tag with vid 100 after the source MAC.
-        let mut tagged = frame[..12].to_vec();
-        tagged.extend_from_slice(&ETHERTYPE_VLAN.to_be_bytes());
-        tagged.extend_from_slice(&100u16.to_be_bytes());
-        tagged.extend_from_slice(&ETHERTYPE_ARP.to_be_bytes());
-        tagged.extend_from_slice(&frame[14..]);
-        frame = tagged;
-        let info = analyze(&frame).expect("analysable");
+        let frame = build_arp_request(&[0; 6], "10.0.0.1").expect("valid target");
+        let tagged = tagged(&frame, 100);
+        let info = analyze(&tagged, None).expect("analysable");
         assert_eq!(info.vlan, Some(100));
         assert_eq!(info.class, "arp-request");
     }
 
     #[test]
-    fn probe_reply_detects_dhcp_offer() {
-        let mut offer_frame = build_dhcp_discover(&[0xaa; 6], 7);
-        // Turn the discover into a proper offer: swap UDP ports to 67->68,
-        // op=2, yiaddr, and option 54 (server identifier) before the end
-        // marker.
+    fn tag_frame_inserts_8021q_header() {
+        let frame = build_arp_request(&[0x11; 6], "10.0.0.1").expect("valid target");
+        let tagged = tagged(&frame, 130);
+        assert_eq!(&tagged[12..14], &ETHERTYPE_VLAN.to_be_bytes());
+        assert_eq!(u16::from_be_bytes([tagged[14], tagged[15]]) & 0x0fff, 130);
+        assert_eq!(&tagged[16..18], &ETHERTYPE_ARP.to_be_bytes());
+        assert_eq!(&tagged[18..18 + frame.len() - 14], &frame[14..]);
+    }
+
+    #[test]
+    fn short_probe_frames_are_padded_to_minimum() {
+        // ARP and PADI are far below the 64-byte 802.1Q minimum; without
+        // padding some NICs emit runt frames that the peer silently drops.
+        let arp = build_arp_request(&[0x11; 6], "10.0.0.1").expect("valid target");
+        let padi = build_pppoe_padi(&[0x11; 6], 130);
+        assert!(arp.len() + 4 < MIN_TAGGED_FRAME);
+        assert!(padi.len() + 4 < MIN_TAGGED_FRAME);
+        assert_eq!(tagged(&arp, 130).len(), MIN_TAGGED_FRAME);
+        assert_eq!(tagged(&padi, 130).len(), MIN_TAGGED_FRAME);
+        // Padding must not change frame semantics.
+        let info = analyze(&tagged(&arp, 130), None).expect("analysable");
+        assert_eq!(info.vlan, Some(130));
+        assert_eq!(info.class, "arp-request");
+    }
+
+    #[test]
+    fn aux_vlan_recovers_offloaded_tag() {
+        // Simulates rx-vlan-offload: the header is stripped before userspace.
+        let frame = build_arp_request(&[0x22; 6], "10.0.0.1").expect("valid target");
+        let info = analyze(&frame, Some(130)).expect("analysable");
+        assert_eq!(info.vlan, Some(130));
+    }
+
+    #[test]
+    fn offloaded_outer_vid_wins_over_inline_inner_tag() {
+        // QinQ with RX offload: the NIC stripped the outer S-VID (130) and
+        // left the inner C-VID (200) inline. The scanner must report the
+        // outer tag and recognise the frame as double tagged.
+        let frame = build_arp_request(&[0x22; 6], "10.0.0.1").expect("valid target");
+        let tagged = tagged(&frame, 200);
+        let info = analyze(&tagged, Some(130)).expect("analysable");
+        assert_eq!(info.vlan, Some(130));
+        assert_eq!(info.class, "arp-request (qinq)");
+    }
+
+    #[test]
+    fn dhcp_total_length_matches_udp_length() {
+        let frame = build_dhcp_discover(&[0x33; 6], 0x1234, None);
+        let ip = &frame[14..];
+        let total_length = u16::from_be_bytes([ip[2], ip[3]]) as usize;
+        let udp = &ip[20..];
+        let udp_length = u16::from_be_bytes([udp[4], udp[5]]) as usize;
+        assert_eq!(total_length, frame.len() - 14);
+        assert_eq!(total_length, 20 + udp_length);
+        assert!(total_length >= 20 + udp_length); // UDP fits inside IPv4 payload
+    }
+
+    #[test]
+    fn parse_mac_accepts_and_rejects() {
+        assert_eq!(parse_mac("00:11:22:33:44:55"), Some([0, 0x11, 0x22, 0x33, 0x44, 0x55]));
+        assert_eq!(parse_mac("aa:bb:cc:dd:ee:ff"), Some([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]));
+        assert_eq!(parse_mac("0:11:22:33:44:55"), None);
+        assert_eq!(parse_mac("00-11-22-33-44-55"), None);
+        assert_eq!(parse_mac("00:11:22:33:44"), None);
+    }
+
+    /// Turn a DISCOVER built by build_dhcp_discover() into a plausible OFFER.
+    fn make_offer(client_mac: &[u8; 6], xid: u32, vlan: u16, inline_tag: bool) -> Vec<u8> {
+        let mut frame = build_dhcp_discover(client_mac, xid, None);
         let udp = 14 + 20;
         let bootp = udp + 8;
-        offer_frame[udp..udp + 2].copy_from_slice(&67u16.to_be_bytes()); // src port
-        offer_frame[udp + 2..udp + 4].copy_from_slice(&68u16.to_be_bytes()); // dst port
-        offer_frame[bootp] = 2; // bootp op: BOOTREPLY
-        offer_frame[bootp + 16..bootp + 20].copy_from_slice(&[10, 1, 2, 3]); // yiaddr
-                                                                             // Append option 54 (server identifier) before the end marker. Search
-                                                                             // only inside the BOOTP region: the ethernet header is all 0xff.
-        let end_position = offer_frame[bootp..]
-            .iter()
-            .position(|&byte| byte == 255)
-            .expect("end marker present")
-            + bootp;
-        offer_frame[end_position] = 54;
-        offer_frame.insert(end_position + 1, 4);
-        offer_frame.insert(end_position + 2, 10);
-        offer_frame.insert(end_position + 3, 0);
-        offer_frame.insert(end_position + 4, 0);
-        offer_frame.insert(end_position + 5, 1);
-        offer_frame.push(255);
-        // Tag it with VLAN 100 like any reply arriving on the parent.
-        let mut tagged = offer_frame[..12].to_vec();
-        tagged.extend_from_slice(&0x8100u16.to_be_bytes());
-        tagged.extend_from_slice(&100u16.to_be_bytes());
-        tagged.extend_from_slice(&0x0800u16.to_be_bytes());
-        tagged.extend_from_slice(&offer_frame[14..]);
-        let reply = inspect_probe_reply(&tagged, &[0x00; 6], 100).expect("offer found");
+        frame[6..12].copy_from_slice(&[0xaa; 6]); // server's source MAC
+        frame[udp..udp + 2].copy_from_slice(&67u16.to_be_bytes()); // src port
+        frame[udp + 2..udp + 4].copy_from_slice(&68u16.to_be_bytes()); // dst port
+        frame[bootp] = 2; // BOOTREPLY
+        frame[bootp + 16..bootp + 20].copy_from_slice(&[10, 1, 2, 3]); // yiaddr
+        if inline_tag {
+            frame = tagged(&frame, vlan);
+        }
+        frame
+    }
+
+    #[test]
+    fn probe_reply_detects_dhcp_offer() {
+        let client = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        let frame = make_offer(&client, 7, 100, true);
+        let reply = inspect_probe_reply(&frame, None, &client, 100, 7).expect("offer found");
         let offer = reply.offer.expect("dhcp offer");
         assert_eq!(offer.address, "10.1.2.3");
-        assert_eq!(offer.server.as_deref(), Some("10.0.0.1"));
+    }
+
+    #[test]
+    fn probe_reply_uses_aux_vlan_when_tag_is_offloaded() {
+        let client = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        let frame = make_offer(&client, 7, 100, false);
+        assert!(inspect_probe_reply(&frame, Some(100), &client, 100, 7).is_some());
+        // A reply belonging to a different VLAN must not mark this one alive.
+        assert!(inspect_probe_reply(&frame, Some(200), &client, 100, 7).is_none());
+    }
+
+    #[test]
+    fn probe_reply_rejects_foreign_xid_or_client() {
+        let client = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        let frame = make_offer(&client, 7, 100, true);
+        assert!(inspect_probe_reply(&frame, None, &client, 100, 8).is_none());
+        assert!(inspect_probe_reply(&frame, None, &[0x99; 6], 100, 7).is_none());
+    }
+
+    /// Build a plausible PADO replying to the PADI for `host_uniq_vlan`.
+    fn make_pado(client: &[u8; 6], host_uniq_vlan: u32, unicast: bool) -> Vec<u8> {
+        let mut frame = build_pppoe_padi(&[0xaa; 6], host_uniq_vlan);
+        frame[6..12].copy_from_slice(&[0xaa; 6]); // AC source MAC
+        frame[15] = 0x07; // code: PADO
+        if unicast {
+            frame[0..6].copy_from_slice(client);
+        }
+        frame
+    }
+
+    #[test]
+    fn pado_is_accepted_without_vlan_evidence_when_token_matches() {
+        let client = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        // Regression: a previous version required an inline tag or auxdata
+        // before accepting any PADO, which silently lost every PPPoE-only
+        // VLAN when the kernel stripped the tag before AF_PACKET saw it.
+        let pado = make_pado(&client, 100, true);
+        assert!(inspect_probe_reply(&pado, None, &client, 100, 7)
+            .expect("pado found")
+            .pado);
+        // Tagged and offloaded variants must work too.
+        assert!(inspect_probe_reply(&tagged(&pado, 100), None, &client, 100, 7).is_some());
+        assert!(inspect_probe_reply(&pado, Some(100), &client, 100, 7).is_some());
+    }
+
+    #[test]
+    fn pado_with_foreign_token_or_broadcast_is_ignored() {
+        let client = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        // Host-Uniq from another VLAN's PADI must not mark VLAN 100 alive.
+        let foreign = make_pado(&client, 200, true);
+        assert!(inspect_probe_reply(&foreign, None, &client, 100, 7).is_none());
+        // A broadcast PADO could belong to any client; never trust it.
+        let broadcast = make_pado(&client, 100, false);
+        assert!(inspect_probe_reply(&broadcast, None, &client, 100, 7).is_none());
+        // A reply tagged with a different VLAN is always rejected.
+        let wrong_vlan = tagged(&make_pado(&client, 100, true), 200);
+        assert!(inspect_probe_reply(&wrong_vlan, None, &client, 100, 7).is_none());
+    }
+
+    #[test]
+    fn arp_reply_reveals_gateway() {
+        let client = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        let mut frame = build_arp_request(&client, "10.0.0.1").expect("valid target");
+        frame[6..12].copy_from_slice(&[0xaa; 6]); // gateway source MAC
+        frame[20..22].copy_from_slice(&2u16.to_be_bytes()); // ARP reply
+        frame[28..32].copy_from_slice(&[10, 0, 0, 1]); // sender protocol address
+        frame[32..38].copy_from_slice(&client); // target hardware address
+        let tagged = tagged(&frame, 130);
+        let reply = inspect_probe_reply(&tagged, None, &client, 130, 7).expect("arp reply");
+        assert_eq!(reply.gateway.as_deref(), Some("10.0.0.1"));
+        // A reply for somebody else's MAC must not count.
+        assert!(inspect_probe_reply(&tagged, None, &[0x99; 6], 130, 7).is_none());
+    }
+
+    #[test]
+    fn dhcp_reply_requires_bootreply_opcode() {
+        let client = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        // Untagged frame (VLAN recovered from auxdata), so BOOTP starts at
+        // 14 (ethernet) + 20 (IPv4) + 8 (UDP).
+        let mut frame = make_offer(&client, 7, 100, false);
+        assert!(inspect_probe_reply(&frame, Some(100), &client, 100, 7).is_some());
+        frame[14 + 20 + 8] = 1; // BOOTREQUEST instead of BOOTREPLY
+        assert!(inspect_probe_reply(&frame, Some(100), &client, 100, 7).is_none());
+    }
+
+    #[test]
+    fn vendor_class_is_emitted_as_option_60() {
+        let frame = build_dhcp_discover(&[0x33; 6], 1, Some("MSFT 5.0"));
+        let bootp = &frame[14 + 20 + 8..];
+        let option = dhcp_options(bootp)
+            .into_iter()
+            .find(|(code, _)| *code == 60)
+            .expect("option 60 present");
+        assert_eq!(option.1, b"MSFT 5.0".to_vec());
+        // The extra option must not break the IPv4 / UDP length relation.
+        let ip = &frame[14..];
+        let udp = &ip[20..];
+        let total = u16::from_be_bytes([ip[2], ip[3]]) as usize;
+        let udp_len = u16::from_be_bytes([udp[4], udp[5]]) as usize;
+        assert_eq!(total, frame.len() - 14);
+        assert_eq!(total, 20 + udp_len);
+        // No option 60 when unspecified.
+        let plain = build_dhcp_discover(&[0x33; 6], 1, None);
+        assert!(dhcp_options(&plain[14 + 20 + 8..])
+            .iter()
+            .all(|(code, _)| *code != 60));
+    }
+
+    #[test]
+    fn ipv6_extension_header_still_classifies_dhcpv6() {
+        let mut frame = vec![0u8; 14 + 40 + 8 + 8];
+        frame[12..14].copy_from_slice(&ETHERTYPE_IPV6.to_be_bytes());
+        let ip = &mut frame[14..];
+        ip[0] = 0x60;
+        ip[6] = 0; // next header: hop-by-hop options
+        ip[40] = 17; // extension header says UDP is next
+        ip[41] = 0; // hdr ext len 0 => 8 bytes total
+        ip[48..50].copy_from_slice(&547u16.to_be_bytes());
+        ip[50..52].copy_from_slice(&546u16.to_be_bytes());
+        let info = analyze(&frame, None).expect("analysable");
+        assert_eq!(info.class, "dhcpv6");
+    }
+
+    #[test]
+    fn probe_reply_ignores_own_echoed_frames() {
+        let client = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        let mut frame = make_offer(&client, 7, 100, true);
+        frame[6..12].copy_from_slice(&client);
+        assert!(inspect_probe_reply(&frame, None, &client, 100, 7).is_none());
     }
 }

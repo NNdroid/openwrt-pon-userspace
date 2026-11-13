@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-//! Minimal rtnetlink client used to create and delete temporary VLAN
-//! subinterfaces during the probe phase. Only two operations exist:
-//! RTM_NEWLINK (create vlan) and RTM_DELLINK. No other link state is ever
-//! touched, and /etc/config/network (UCI) is never modified.
+//! Minimal rtnetlink client (currently unused, kept for reference).
+//!
+//! Earlier probe implementations created temporary `vs<vid>` VLAN
+//! subinterfaces. That approach failed whenever a service VLAN interface
+//! with the same VID already existed (EEXIST), and the new link was left
+//! DOWN, so transmissions failed with ENETDOWN. Probe mode now sends
+//! 802.1Q-tagged frames directly on the parent raw socket instead: no
+//! interfaces are created, no link state changes, and a custom source MAC
+//! needs no interface MAC rewrite. This module is no longer declared in
+//! main.rs and is therefore not compiled into the binary.
 
 use std::io;
 use std::mem::size_of;

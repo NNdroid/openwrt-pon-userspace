@@ -7,12 +7,17 @@
 //! transmits anything.
 //!
 //! Probe mode (--probe) additionally sends exactly three discovery frames
-//! per candidate VLAN on a short-lived temporary subinterface: an ARP
-//! request, a PPPoE PADI and a DHCP DISCOVER. All three are pure discovery
-//! semantics - a PADR (PPPoE session) and a DHCP REQUEST (lease binding)
-//! are never sent, so probing cannot establish sessions, bind leases or
-//! otherwise alter network state. The temporary subinterface is created and
-//! deleted via rtnetlink; UCI configuration is never touched.
+//! per candidate VLAN as 802.1Q-tagged ethernet frames on the parent link:
+//! an ARP request, a PPPoE PADI and a DHCP DISCOVER. All three are pure
+//! discovery semantics - a PADR (PPPoE session) and a DHCP REQUEST (lease
+//! binding) are never sent, so probing cannot establish sessions, bind
+//! leases or otherwise alter network state. No temporary subinterface is
+//! created, no interface flags or MACs are changed, and UCI configuration
+//! is never touched.
+//!
+//! The source MAC of every probe frame can be overridden with --mac, which
+//! is useful when an ISP only answers the MAC already registered for a
+//! service VLAN (e.g. the MAC of an existing pon0.<vid> DHCP interface).
 
 use std::collections::BTreeMap;
 use std::env;
@@ -27,11 +32,11 @@ use std::time::{Duration, Instant};
 
 mod packet;
 mod rawsock;
-mod rtnetlink;
 
 use rawsock::RawPacketSocket;
 
 const NET_CLASS: &str = "/sys/class/net";
+const VLAN_CONFIG: &str = "/proc/net/vlan/config";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const RECEIVE_BUFFER_SIZE: usize = 2048;
 
@@ -41,14 +46,13 @@ const DEFAULT_PROBE_INTERVAL_MS: u64 = 200;
 const DEFAULT_ARP_TARGET: &str = "192.168.1.1";
 const DEFAULT_TRANSACTION_ID: u32 = 0x2b3c4d5e;
 
-/// Temporary subinterfaces are named vs<vid>; the prefix is distinctive
-/// enough that a stale one after a crash is always ours to remove.
-const SUBINTERFACE_PREFIX: &str = "vs";
-
-/// Candidate VLANs probed when --vlan is not given: a short list of VLAN ids
-/// commonly used by ISPs for internet, IPTV and TR069 services.
+/// Candidate VLANs probed when --vlan is not given: VLAN ids commonly used
+/// by ISPs for internet, IPTV and TR069 services. VLANs already configured
+/// on the PON parent (read from /proc/net/vlan/config) are merged into this
+/// list automatically, so a service VLAN such as 130 is always covered.
 const DEFAULT_CANDIDATES: &[u16] = &[
-    10, 35, 45, 48, 85, 100, 101, 110, 200, 451, 1000, 1001, 2000, 3000, 4001,
+    10, 35, 41, 45, 48, 85, 100, 101, 102, 110, 130, 200, 451, 1000, 1001, 2000, 3000, 3961,
+    4001,
 ];
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -70,6 +74,28 @@ extern "C" {
     #[link_name = "signal"]
     fn libc_signal(signum: c_int, handler: usize) -> usize;
     fn getpid() -> c_int;
+}
+
+/// Escape a string for embedding into a JSON string literal.
+fn json_string(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len() + 2);
+    for character in text.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' | '\r' => escaped.push(' '),
+            control if control.is_control() => {}
+            other => escaped.push(other),
+        }
+    }
+    escaped
+}
+
+fn mac_text(mac: &[u8; 6]) -> String {
+    mac.iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 /// Job-mode state file writer. When --job is given the scanner publishes its
@@ -111,7 +137,12 @@ impl Job {
     fn publish(&self, status: &str, progress: &str) {
         let content = format!(
             r#"{{"id":"{}","mode":"{}","interface":"{}","status":"{}","params":{},"progress":{}}}"#,
-            self.id, self.mode, self.interface, status, self.params, progress
+            json_string(&self.id),
+            self.mode,
+            json_string(&self.interface),
+            status,
+            self.params,
+            progress
         );
         let _ = fs::write(self.dir.join("job.json"), content);
         let _ = fs::write(self.dir.join("status"), status);
@@ -131,6 +162,22 @@ impl Job {
         }
         self.publish(status, "{}");
     }
+
+    /// Record a fatal error in job.json. results.json stays a valid (empty)
+    /// JSON array so the LuCI view never has to special-case an object.
+    fn fail(&self, error: &str) {
+        let content = format!(
+            r#"{{"id":"{}","mode":"{}","interface":"{}","status":"failed","params":{},"progress":{{}},"error":"{}"}}"#,
+            json_string(&self.id),
+            self.mode,
+            json_string(&self.interface),
+            self.params,
+            json_string(error)
+        );
+        let _ = fs::write(self.dir.join("job.json"), content);
+        let _ = fs::write(self.dir.join("status"), "failed");
+        let _ = fs::write(self.dir.join("results.json"), "[]");
+    }
 }
 
 fn stopped() -> bool {
@@ -146,6 +193,8 @@ struct Options {
     probe_wait: Duration,
     probe_interval: Duration,
     arp_target: String,
+    probe_mac: Option<[u8; 6]>,
+    vendor_class: Option<String>,
     job_dir: Option<PathBuf>,
 }
 
@@ -166,10 +215,17 @@ Options:
   --duration <seconds>     passive listen duration (default {DEFAULT_DURATION_SECONDS})
   --probe                  enable active probing
   --vlan <list>            probe candidates: '35,100,1000-1010', 'all' for
-                           1-4094 (default: a short list of common ISP VLANs)
+                           1-4094 (default: VLANs already configured on the
+                           PON parent plus a short list of common ISP VLANs)
   --probe-wait <ms>        reply window per VLAN (default {DEFAULT_PROBE_WAIT_MS})
   --probe-interval <ms>    spacing between VLANs (default {DEFAULT_PROBE_INTERVAL_MS})
   --arp-target <a.b.c.d>   address used in the ARP probe (default {DEFAULT_ARP_TARGET})
+  --mac <aa:bb:cc:dd:ee:ff>  source MAC for probe frames (default: the PON
+                           interface MAC). Use the MAC of the service VLAN
+                           interface when the ISP only answers that MAC.
+  --vendor-class <text>    DHCP option 60 vendor class (default: omitted).
+                           Some ISPs only answer a DISCOVER carrying their
+                           expected vendor string.
   --job <dir>              publish job state (status, progress, results) in
                            <dir>; used by the LuCI app for background runs
   --json                   machine-readable output
@@ -227,6 +283,8 @@ fn parse_arguments(arguments: &[String]) -> Result<Options> {
         probe_wait: Duration::from_millis(DEFAULT_PROBE_WAIT_MS),
         probe_interval: Duration::from_millis(DEFAULT_PROBE_INTERVAL_MS),
         arp_target: DEFAULT_ARP_TARGET.to_owned(),
+        probe_mac: None,
+        vendor_class: None,
         job_dir: None,
     };
 
@@ -276,6 +334,26 @@ fn parse_arguments(arguments: &[String]) -> Result<Options> {
                     .map_err(|_| format!("invalid --arp-target '{value}'"))?;
                 options.arp_target = value;
             }
+            "--mac" => {
+                let value = take("--mac")?;
+                options.probe_mac = Some(
+                    packet::parse_mac(&value).ok_or_else(|| {
+                        format!("invalid --mac '{value}' (expected aa:bb:cc:dd:ee:ff)")
+                    })?,
+                );
+            }
+            "--vendor-class" => {
+                let value = take("--vendor-class")?;
+                if value.is_empty()
+                    || value.len() > 255
+                    || !value.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
+                {
+                    return Err(
+                        "invalid --vendor-class (expected 1-255 printable ASCII characters)".into(),
+                    );
+                }
+                options.vendor_class = Some(value);
+            }
             "--job" => options.job_dir = Some(PathBuf::from(take("--job")?)),
             "--json" => options.json = true,
             other => return Err(format!("unknown argument '{other}' (try --help)").into()),
@@ -318,18 +396,61 @@ fn interface_index(name: &str) -> Result<i32> {
 
 fn interface_mac(name: &str) -> Result<[u8; 6]> {
     let text = read_trimmed(&Path::new(NET_CLASS).join(name).join("address"))?;
-    let bytes = text
-        .split(':')
-        .map(|part| u8::from_str_radix(part, 16))
-        .collect::<std::result::Result<Vec<u8>, _>>()
-        .map_err(|_| format!("invalid mac address for {name}"))?;
-    bytes
-        .try_into()
-        .map_err(|_| format!("unexpected mac address length for {name}").into())
+    packet::parse_mac(&text).ok_or_else(|| format!("invalid mac address for {name}").into())
 }
 
-fn link_exists(name: &str) -> bool {
-    Path::new(NET_CLASS).join(name).exists()
+/// VLAN ids already configured on the PON parent. /proc/net/vlan/config is
+/// the authoritative source; interface-name suffixes are used as a fallback
+/// when the 802.1Q module is built in and does not expose that file.
+fn configured_vlans(interface: &str) -> Vec<u16> {
+    let mut vlans: Vec<u16> = Vec::new();
+    if let Ok(text) = fs::read_to_string(VLAN_CONFIG) {
+        for line in text.lines().skip(2) {
+            let fields: Vec<&str> = line.split('|').map(str::trim).collect();
+            if fields.len() < 3 || fields[2] != interface {
+                continue;
+            }
+            if let Ok(vlan) = fields[1].parse::<u16>() {
+                if (1..=4094).contains(&vlan) {
+                    vlans.push(vlan);
+                }
+            }
+        }
+    }
+    if vlans.is_empty() {
+        let prefix = format!("{interface}.");
+        if let Ok(entries) = fs::read_dir(NET_CLASS) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if let Some(suffix) = name.strip_prefix(&prefix) {
+                    if let Ok(vlan) = suffix.parse::<u16>() {
+                        if (1..=4094).contains(&vlan) {
+                            vlans.push(vlan);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    vlans.sort_unstable();
+    vlans.dedup();
+    vlans
+}
+
+/// The exact candidate list a probe run will use. Shared by run() (for the
+/// job metadata) and probe_scan() so the UI always shows the real list.
+fn build_candidates(options: &Options, interface: &str) -> Vec<u16> {
+    let mut candidates = match &options.vlans {
+        Some(list) => list.clone(),
+        None => {
+            let mut list = configured_vlans(interface);
+            list.extend_from_slice(DEFAULT_CANDIDATES);
+            list
+        }
+    };
+    candidates.sort_unstable();
+    candidates.dedup();
+    candidates
 }
 
 fn relative_seconds(start: Instant) -> f64 {
@@ -379,7 +500,7 @@ fn passive_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&J
             continue;
         };
         // Outgoing frames tell the same VLAN story; count them too.
-        let Some(info) = packet::analyze(received.data) else {
+        let Some(info) = packet::analyze(received.data, received.vlan) else {
             continue;
         };
         let now = relative_seconds(start);
@@ -510,65 +631,53 @@ impl ProbeOutcome {
 
 fn probe_vlan(
     parent_index: i32,
-    our_mac: [u8; 6],
+    probe_mac: [u8; 6],
     vlan: u16,
     options: &Options,
-    listener: &RawPacketSocket,
+    socket: &RawPacketSocket,
 ) -> Result<ProbeOutcome> {
-    let name = format!("{SUBINTERFACE_PREFIX}{vlan}");
+    let transaction_id = DEFAULT_TRANSACTION_ID ^ (vlan as u32);
     let mut outcome = ProbeOutcome::default();
 
-    // Remove a stale subinterface left over from a crashed run; the name
-    // convention makes it unambiguously ours.
-    if link_exists(&name) {
-        let stale_index = interface_index(&name)?;
-        rtnetlink::delete_link(stale_index)?;
-    }
-    rtnetlink::create_vlan(parent_index, &name, vlan)?;
+    let arp = packet::build_arp_request(&probe_mac, &options.arp_target)
+        .ok_or("invalid ARP target")?;
+    let frames = [
+        packet::tag_frame(&arp, vlan),
+        packet::tag_frame(&packet::build_pppoe_padi(&probe_mac, vlan as u32), vlan),
+        packet::tag_frame(
+            &packet::build_dhcp_discover(
+                &probe_mac,
+                transaction_id,
+                options.vendor_class.as_deref(),
+            ),
+            vlan,
+        ),
+    ];
 
-    // Drop guard: whatever happens below (including ? returns and panics
-    // through unwinding), the subinterface is deleted exactly once.
-    struct Guard(i32, String);
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            let _ = rtnetlink::delete_link(self.0);
-            eprintln!("vlanscan: removed temporary interface {}", self.1);
-        }
+    // The 802.1Q header is part of each frame, so the parent raw socket
+    // transmits it verbatim. No subinterface is created: this avoids EEXIST
+    // clashes with an already configured service VLAN interface and never
+    // changes link state.
+    for frame in frames.iter().flatten() {
+        socket.send(parent_index, 0x8100, &[0xff; 6], frame)?;
     }
-
-    let sub_index = interface_index(&name)?;
-    let guard = Guard(sub_index, name.clone());
-    let transmit_socket = RawPacketSocket::bind_interface(sub_index)?;
-    let sub_mac = interface_mac(&name)?;
-
-    // The three discovery frames, sent one by one through the kernel's
-    // standard vlan path. No other traffic is generated.
-    if let Some(frame) = packet::build_arp_request(&sub_mac, &options.arp_target) {
-        transmit_socket.send(sub_index, 0x0806, &[0xff; 6], &frame)?;
-    }
-    transmit_socket.send(
-        sub_index,
-        0x8863,
-        &[0xff; 6],
-        &packet::build_pppoe_padi(&sub_mac, vlan as u32),
-    )?;
-    transmit_socket.send(
-        sub_index,
-        0x0800,
-        &[0xff; 6],
-        &packet::build_dhcp_discover(&sub_mac, DEFAULT_TRANSACTION_ID ^ (vlan as u32)),
-    )?;
 
     let deadline = Instant::now() + options.probe_wait;
     let mut buffer = vec![0u8; RECEIVE_BUFFER_SIZE];
     while Instant::now() < deadline && !stopped() {
-        let Some(received) = listener.receive(&mut buffer)? else {
+        let Some(received) = socket.receive(&mut buffer)? else {
             continue;
         };
         if received.pkttype == rawsock::PACKET_OUTGOING {
             continue;
         }
-        if let Some(reply) = packet::inspect_probe_reply(received.data, &our_mac, vlan) {
+        if let Some(reply) = packet::inspect_probe_reply(
+            received.data,
+            received.vlan,
+            &probe_mac,
+            vlan,
+            transaction_id,
+        ) {
             if let Some(gateway) = reply.gateway {
                 outcome.gateway.get_or_insert(gateway);
             }
@@ -582,24 +691,32 @@ fn probe_vlan(
             }
         }
     }
-    let _ = transmit_socket;
-    drop(guard);
     Ok(outcome)
 }
 
 fn probe_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&Job>) -> Result<()> {
-    let candidates = match &options.vlans {
-        Some(list) => list.clone(),
-        None => DEFAULT_CANDIDATES.to_vec(),
+    let candidates = build_candidates(options, interface);
+    let probe_mac = match options.probe_mac {
+        Some(mac) => mac,
+        None => interface_mac(interface)?,
     };
-    let our_mac = interface_mac(interface)?;
-    let listener = RawPacketSocket::bind_interface(ifindex)?;
+    let socket = RawPacketSocket::bind_interface(ifindex)?;
+    // Unicast DHCP offers addressed to a custom --mac would otherwise be
+    // filtered by the NIC. This is socket-scoped and reverted on close.
+    if let Err(error) = socket.enable_promiscuous(ifindex) {
+        eprintln!(
+            "vlanscan: warning: promiscuous receive unavailable ({error}); \
+             unicast replies to a custom probe MAC may be missed"
+        );
+    }
 
     if !options.json {
         eprintln!(
-            "vlanscan: probing {} VLANs on {interface} (discovery frames only:\n\
-             ARP request, PPPoE PADI, DHCP DISCOVER - no PADR, no DHCP REQUEST)",
-            candidates.len()
+            "vlanscan: probing {} VLANs on {interface} with source MAC {} \
+             (discovery frames only: ARP request, PPPoE PADI, DHCP DISCOVER - \
+             no PADR, no DHCP REQUEST)",
+            candidates.len(),
+            mac_text(&probe_mac)
         );
     }
 
@@ -622,7 +739,7 @@ fn probe_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&Job
                 vlan
             ));
         }
-        let outcome = match probe_vlan(ifindex, our_mac, *vlan, options, &listener) {
+        let outcome = match probe_vlan(ifindex, probe_mac, *vlan, options, &socket) {
             Ok(outcome) => outcome,
             Err(error) => {
                 if !options.json {
@@ -731,20 +848,29 @@ fn run() -> Result<()> {
     let job = match &options.job_dir {
         Some(dir) => {
             let params = if options.probe {
-                let vlans = match &options.vlans {
-                    Some(list) => format!(
-                        "[{}]",
-                        list.iter()
-                            .map(|vlan| vlan.to_string())
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    ),
-                    None => "null".to_owned(),
+                let candidates = build_candidates(&options, &interface);
+                let vlans = format!(
+                    "[{}]",
+                    candidates
+                        .iter()
+                        .map(|vlan| vlan.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+                let mac = match options.probe_mac {
+                    Some(value) => value,
+                    None => interface_mac(&interface)?,
                 };
+                let vendor = options
+                    .vendor_class
+                    .as_ref()
+                    .map(|value| format!(r#""{}""#, json_string(value)))
+                    .unwrap_or_else(|| "null".to_owned());
                 format!(
-                    r#"{{"vlans":{vlans},"arp_target":"{}","probe_wait":{}}}"#,
-                    options.arp_target,
-                    options.probe_wait.as_millis()
+                    r#"{{"vlans":{vlans},"arp_target":"{}","probe_wait":{},"mac":"{}","vendor_class":{vendor}}}"#,
+                    json_string(&options.arp_target),
+                    options.probe_wait.as_millis(),
+                    mac_text(&mac)
                 )
             } else {
                 format!(r#"{{"duration":{}}}"#, options.duration_seconds.max(1))
@@ -762,7 +888,7 @@ fn run() -> Result<()> {
     // Normal completion paths finalise the job themselves; only an error
     // return leaves the job running, so mark it failed here.
     if let (Some(job), Err(error)) = (&job, &scan_result) {
-        job.finish("failed", &format!(r#"{{"error":"{error}"}}"#));
+        job.fail(&error.to_string());
     }
     scan_result
 }

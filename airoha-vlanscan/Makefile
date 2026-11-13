@@ -25,9 +25,10 @@ endef
 define Package/airoha-vlanscan/description
  Discovers which 802.1Q VLAN ids carry traffic on the PON uplink. Passive
  listening mode never transmits anything; the optional probe mode sends
- discovery frames only (ARP request, PPPoE PADI, DHCP DISCOVER) on
- short-lived temporary VLAN subinterfaces and never binds a lease or a
- session. UCI configuration is never touched.
+ discovery frames only (ARP request, PPPoE PADI, DHCP DISCOVER) as
+ 802.1Q-tagged frames on the parent link, with a configurable source MAC,
+ and never binds a lease or a session. No interfaces are created or
+ modified and UCI configuration is never touched.
 endef
 
 define Build/Prepare
