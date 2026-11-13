@@ -23,7 +23,6 @@ use std::collections::BTreeMap;
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::io::Write;
 use std::net::Ipv4Addr;
 use std::os::raw::c_int;
 use std::path::{Path, PathBuf};
@@ -498,6 +497,10 @@ fn passive_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&J
     // Option avoids Instant::now() - 1s, which could panic within the first
     // second after boot.
     let mut last_job_update: Option<Instant> = None;
+    // Heartbeats are throttled by wall time, not by frame count: a busy PON
+    // link can deliver thousands of frames per second, which used to write a
+    // log line every 2048 frames and flood the job log.
+    let mut last_heartbeat = Instant::now();
 
     eprintln!("vlanscan: listening on {interface} for {duration}s (passive, no packets are sent)");
 
@@ -527,17 +530,22 @@ fn passive_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&J
             }
         }
 
-        // Progress heartbeat on stderr every ~10 seconds of wall time.
-        if !options.json && total % 2048 == 0 {
-            let elapsed = now;
-            let _ = write!(
-                std::io::stderr(),
-                "vlanscan: {} frames in {elapsed:.0}s...\r",
-                total
-            );
+        // vlanscan-ctl redirects stderr into a plain log file that LuCI shows
+        // inside a <pre>. Always use LF, never CR: a carriage return only
+        // overwrites a line on a real terminal, and in a file it concatenates
+        // every heartbeat into one unreadable line.
+        if !options.json && last_heartbeat.elapsed() >= Duration::from_secs(10) {
+            last_heartbeat = Instant::now();
+            eprintln!("vlanscan: {total} frames in {now:.0}s of {duration}s (passive)...");
         }
     }
-    let _ = write!(std::io::stderr(), "\n");
+    if !options.json {
+        eprintln!(
+            "vlanscan: passive capture finished after {:.0}s, {total} frames on {} VLAN keys",
+            relative_seconds(start),
+            stats.len()
+        );
+    }
 
     let results = passive_json(&stats);
     if let Some(job) = job {
