@@ -46,11 +46,11 @@ const DEFAULT_PROBE_INTERVAL_MS: u64 = 200;
 const DEFAULT_ARP_TARGET: &str = "192.168.1.1";
 const DEFAULT_TRANSACTION_ID: u32 = 0x2b3c4d5e;
 
-/// Candidate VLANs probed when --vlan is not given: VLAN ids commonly used
-/// by ISPs for internet, IPTV and TR069 services. VLANs already configured
-/// on the PON parent (read from /proc/net/vlan/config) are merged into this
-/// list automatically, so a service VLAN such as 130 is always covered.
-const DEFAULT_CANDIDATES: &[u16] = &[
+/// VLAN ids commonly used by ISPs for internet, IPTV and TR069 services.
+/// This is an explicit opt-in preset (`--vlan common`), never an implicit
+/// default: service VLAN ids differ by region, so silently probing this list
+/// would miss local VLANs while giving the impression that more was scanned.
+const COMMON_VLANS: &[u16] = &[
     10, 35, 41, 45, 48, 85, 100, 101, 102, 110, 130, 200, 451, 1000, 1001, 2000, 3000, 3961,
     4001,
 ];
@@ -215,8 +215,8 @@ Options:
   --duration <seconds>     passive listen duration (default {DEFAULT_DURATION_SECONDS})
   --probe                  enable active probing
   --vlan <list>            probe candidates: '35,100,1000-1010', 'all' for
-                           1-4094 (default: VLANs already configured on the
-                           PON parent plus a short list of common ISP VLANs)
+                           1-4094, 'common' for a short ISP preset (default:
+                           only VLANs already configured on the PON parent)
   --probe-wait <ms>        reply window per VLAN (default {DEFAULT_PROBE_WAIT_MS})
   --probe-interval <ms>    spacing between VLANs (default {DEFAULT_PROBE_INTERVAL_MS})
   --arp-target <a.b.c.d>   address used in the ARP probe (default {DEFAULT_ARP_TARGET})
@@ -243,6 +243,10 @@ fn parse_vlan_list(text: &str) -> Result<Vec<u16>> {
         }
         if part.eq_ignore_ascii_case("all") {
             result.extend(1u16..=4094);
+            continue;
+        }
+        if part.eq_ignore_ascii_case("common") {
+            result.extend(COMMON_VLANS.iter().copied());
             continue;
         }
         if let Some((start, end)) = part.split_once('-') {
@@ -439,14 +443,16 @@ fn configured_vlans(interface: &str) -> Vec<u16> {
 
 /// The exact candidate list a probe run will use. Shared by run() (for the
 /// job metadata) and probe_scan() so the UI always shows the real list.
+///
+/// With no --vlan argument only the VLANs already configured on the PON
+/// parent are probed. ISP assignments differ by region, so guessing a
+/// "common" list here would silently miss local VLANs and overstate what was
+/// scanned. Widening the search is always an explicit choice: `--vlan
+/// common`, `--vlan all`, or an explicit id/range list.
 fn build_candidates(options: &Options, interface: &str) -> Vec<u16> {
     let mut candidates = match &options.vlans {
         Some(list) => list.clone(),
-        None => {
-            let mut list = configured_vlans(interface);
-            list.extend_from_slice(DEFAULT_CANDIDATES);
-            list
-        }
+        None => configured_vlans(interface),
     };
     candidates.sort_unstable();
     candidates.dedup();
@@ -696,6 +702,14 @@ fn probe_vlan(
 
 fn probe_scan(options: &Options, interface: &str, ifindex: i32, job: Option<&Job>) -> Result<()> {
     let candidates = build_candidates(options, interface);
+    if candidates.is_empty() {
+        return Err(format!(
+            "no candidate VLANs: none are configured on {interface}; pass \
+             --vlan <ids>, --vlan common or --vlan all, or run a passive scan \
+             first to see which VLANs this link actually uses"
+        )
+        .into());
+    }
     let probe_mac = match options.probe_mac {
         Some(mac) => mac,
         None => interface_mac(interface)?,
@@ -897,5 +911,57 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("vlanscan: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn common_preset_is_explicit_and_complete() {
+        let list = parse_vlan_list("common").expect("valid preset");
+        assert_eq!(list.len(), COMMON_VLANS.len());
+        assert!(list.contains(&130));
+        let mut expected = COMMON_VLANS.to_vec();
+        expected.sort_unstable();
+        expected.dedup();
+        assert_eq!(list, expected);
+        assert!(parse_vlan_list("common,2001").unwrap().contains(&2001));
+        assert!(parse_vlan_list("COMMON").is_ok());
+    }
+
+    #[test]
+    fn all_preset_covers_8021q_range() {
+        let list = parse_vlan_list("all").expect("valid preset");
+        assert_eq!(list.len(), 4094);
+        assert_eq!(list[0], 1);
+        assert_eq!(list[4093], 4094);
+    }
+
+    #[test]
+    fn explicit_ranges_and_validation() {
+        assert_eq!(parse_vlan_list("130,1000-1010").unwrap().len(), 12);
+        assert!(parse_vlan_list("0").is_err());
+        assert!(parse_vlan_list("4095").is_err());
+        assert!(parse_vlan_list("1000-900").is_err());
+        assert!(parse_vlan_list("garbage").is_err());
+    }
+
+    #[test]
+    fn empty_vlan_argument_does_not_implicitly_probe_common_preset() {
+        let options = parse_arguments(&[]).expect("default options");
+        // An interface name that cannot exist keeps configured_vlans() empty
+        // on every host, so any result would have to come from a preset.
+        let candidates = build_candidates(&options, "vlanscan-test-no-such-iface");
+        assert!(!candidates.iter().any(|vlan| COMMON_VLANS.contains(vlan)));
+    }
+
+    #[test]
+    fn explicit_common_is_used_when_requested() {
+        let mut options = parse_arguments(&[]).expect("default options");
+        options.vlans = Some(parse_vlan_list("common").unwrap());
+        let candidates = build_candidates(&options, "vlanscan-test-no-such-iface");
+        assert_eq!(candidates.len(), COMMON_VLANS.len());
     }
 }

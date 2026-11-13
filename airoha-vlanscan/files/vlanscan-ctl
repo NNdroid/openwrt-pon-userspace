@@ -41,9 +41,12 @@ valid_num() {
 	return 0
 }
 
+# 'all' and 'common' are explicit presets expanded by vlanscan itself.
+# They are never applied implicitly: an omitted list means "only the VLANs
+# already configured on the PON interface".
 valid_vlans() {
 	case "$1" in
-		all) return 0 ;;
+		all|common) return 0 ;;
 		*[!0-9,-]*|'') return 1 ;;
 	esac
 	return 0

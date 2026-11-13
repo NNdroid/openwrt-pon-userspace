@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=airoha-vlanscan
-PKG_VERSION:=0.1.0
+PKG_VERSION:=0.2.0
 PKG_RELEASE:=1
 PKG_URL:=https://github.com/pbs05/openwrt-pon-userspace/tree/main/airoha-vlanscan
 
@@ -27,8 +27,10 @@ define Package/airoha-vlanscan/description
  listening mode never transmits anything; the optional probe mode sends
  discovery frames only (ARP request, PPPoE PADI, DHCP DISCOVER) as
  802.1Q-tagged frames on the parent link, with a configurable source MAC,
- and never binds a lease or a session. No interfaces are created or
- modified and UCI configuration is never touched.
+ and never binds a lease or a session. With no explicit candidate list the
+ probe only covers VLANs already configured on the PON parent; 'common' and
+ 'all' presets are opt-in because ISP VLAN ids differ by region. No
+ interfaces are created or modified and UCI configuration is never touched.
 endef
 
 define Build/Prepare
