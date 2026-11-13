@@ -9,6 +9,62 @@
 
 var CTL = '/usr/libexec/vlanscan-ctl';
 
+/* Beautified styles (injected once into <head>). */
+var CSS = [
+	'/* VLAN Scan beautified styles */',
+	'.vscan-card{background:#fff;border:1px solid #e6e6e6;border-radius:10px;padding:14px 16px;margin-bottom:14px;box-shadow:0 1px 2px rgba(0,0,0,.04);}',
+	'.vscan-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}',
+	'.vscan-badges{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+	'.vscan-title{font-weight:600;font-size:15px;color:#222;}',
+	'.vscan-meta{color:#8a8a8a;font-size:12.5px;margin:8px 0 4px;}',
+	'.vscan-actions{display:inline-flex;gap:6px;}',
+	'.vscan-tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11.5px;background:#f0f2f5;color:#555;}',
+	'.vscan-results-head{font-weight:600;font-size:13px;color:#444;margin:12px 0 4px;}',
+	'.vscan-table{width:100%;border-collapse:collapse;margin-top:4px;font-size:13px;}',
+	'.vscan-table th{text-align:left;background:#f7f8fa;padding:7px 10px;border-bottom:2px solid #e6e6e6;color:#555;font-weight:600;}',
+	'.vscan-table td{padding:6px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top;}',
+	'.vscan-untagged td:first-child{font-weight:600;color:#b5650a;}',
+	'.vscan-total td{font-weight:600;background:#fafbfc;border-top:2px solid #e6e6e6;}',
+	'.vscan-chip{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11.5px;margin:1px 4px 1px 0;white-space:nowrap;}',
+	'.vscan-chip.pppoe{background:#e3f0ff;color:#1a5fb4;}',
+	'.vscan-chip.arp{background:#f0f0f0;color:#555;}',
+	'.vscan-chip.dhcp{background:#e6f7ec;color:#1a7f43;}',
+	'.vscan-chip.ipv4{background:#e8f4f8;color:#0b6e8f;}',
+	'.vscan-chip.ipv6{background:#f0e9fb;color:#6a3fb5;}',
+	'.vscan-chip.igmp{background:#fdeede;color:#b5650a;}',
+	'.vscan-chip.other{background:#f3f3f3;color:#666;}',
+	'.vscan-empty{color:#999;font-style:italic;padding:6px 0;}',
+	'.vscan-note{color:#c0392b;font-size:12.5px;}'
+].join('\n');
+
+var cssInjected = false;
+function ensureCss() {
+	if (cssInjected)
+		return;
+	cssInjected = true;
+	try {
+		document.head.appendChild(E('style', {}, CSS));
+	} catch (e) { /* non-fatal */ }
+}
+
+/* Robust file read: LuCI's fs.read() may return either a plain string or an
+ * object shaped like { data: <string> } depending on the version. Normalize
+ * both to a text string so JSON parsing always works. */
+function readText(path) {
+	return Promise.resolve()
+		.then(function () { return fs.read(path); })
+		.then(function (res) {
+			if (typeof res === 'string')
+				return res;
+			if (res && typeof res.data === 'string')
+				return res.data;
+			if (res && res.data && typeof res.data === 'object')
+				return JSON.stringify(res.data);
+			return '';
+		})
+		.catch(function () { return ''; });
+}
+
 function ctlExec(args) {
 	return fs.exec(CTL, args).catch(function (error) {
 		ui.addNotification(null, E('p', {}, _('VLAN scan control failed: %s').format(error.message || error)), 'error');
@@ -32,6 +88,41 @@ function jobTime(id) {
 	if (isNaN(seconds))
 		return id;
 	return new Date(seconds * 1000).toLocaleString();
+}
+
+function modeText(mode) {
+	if (mode === 'probe')
+		return _('Probe (discovery frames on candidate VLANs)');
+	if (mode === 'passive')
+		return _('Passive listen (no packets sent)');
+	return mode || '?';
+}
+
+/* Map a traffic class name to a colour class for the chip. */
+function chipClass(name) {
+	if (name.indexOf('pppoe') === 0)
+		return 'pppoe';
+	if (name.indexOf('arp') === 0)
+		return 'arp';
+	if (name.indexOf('dhcp') === 0)
+		return 'dhcp';
+	if (name === 'ipv4')
+		return 'ipv4';
+	if (name === 'ipv6' || name === 'ndp')
+		return 'ipv6';
+	if (name.indexOf('igmp') === 0)
+		return 'igmp';
+	return 'other';
+}
+
+function classChips(classes) {
+	var keys = Object.keys(classes || {}).sort();
+	if (!keys.length)
+		return E('span', { 'class': 'vscan-empty' }, '–');
+	return E('span', {}, keys.map(function (name) {
+		return E('span', { 'class': 'vscan-chip ' + chipClass(name) },
+			name + ' ' + classes[name]);
+	}));
 }
 
 function progressText(job) {
@@ -68,19 +159,19 @@ return view.extend({
 			return Promise.all(entries.map(function (entry) {
 				var base = '/tmp/vlanscan/' + entry.id;
 				return Promise.all([
-					fs.read(base + '/job.json').catch(function () { return null; }),
-					fs.read(base + '/results.json').catch(function () { return null; })
-				]).then(function (files) {
+					readText(base + '/job.json'),
+					readText(base + '/results.json')
+				]).then(function (texts) {
 					var job = {};
 					try {
-						job = JSON.parse((files[0] && files[0].data) || '{}');
+						job = JSON.parse(texts[0] || '{}');
 					}
 					catch (error) { /* job.json not written yet */ }
 					job.id = entry.id;
 					job.status = entry.status;
-					if (files[1] && files[1].data) {
+					if (texts[1]) {
 						try {
-							job.results = JSON.parse(files[1].data);
+							job.results = JSON.parse(texts[1]);
 						}
 						catch (error) { /* partial write, retry next poll */ }
 					}
@@ -90,13 +181,30 @@ return view.extend({
 		});
 	},
 
+	/* One-line summary of the parameters actually used for the scan. */
+	paramLine: function (job) {
+		var parts = [
+			_('Mode') + ': ' + modeText(job.mode),
+			_('Interface') + ': ' + (job.interface || _('auto-detect'))
+		];
+		if (job.mode == 'probe') {
+			var vlans = (job.params && job.params.vlans) ? job.params.vlans.join(', ') : _('all');
+			parts.push(_('VLANs') + ': ' + vlans);
+		}
+		else {
+			var dur = (job.params && job.params.duration) ? job.params.duration : '?';
+			parts.push(_('Duration') + ': ' + dur + ' s');
+		}
+		return E('div', { 'class': 'vscan-meta' }, parts.join('   ·   '));
+	},
+
 	renderResults: function (job) {
 		var results = job.results;
 		if (!results || !results.length)
-			return E([]);
+			return E('div', { 'class': 'vscan-empty' }, _('No packets captured during this scan window.'));
 
 		if (job.mode == 'probe') {
-			var rows = results.map(function (entry) {
+			var prows = results.map(function (entry) {
 				return E('tr', {}, [
 					E('td', {}, String(entry.vid)),
 					E('td', {}, entry.pppoe ? _('yes (PADO)') : '–'),
@@ -105,93 +213,105 @@ return view.extend({
 					E('td', {}, entry.dhcp_server || '–')
 				]);
 			});
-			return E('table', { 'class': 'table table-condensed' }, [
-				E('tr', { 'class': 'tr-table-titles' }, [
-					E('th', {}, _('VLAN')),
-					E('th', {}, _('PPPoE')),
-					E('th', {}, _('Gateway (ARP)')),
-					E('th', {}, _('DHCP offer')),
-					E('th', {}, _('DHCP server'))
-				]),
-				rows
+			return E('div', {}, [
+				E('div', { 'class': 'vscan-results-head' }, _('Results')),
+				E('table', { 'class': 'vscan-table' }, [
+					E('tr', { 'class': 'vscan-thead' }, [
+						E('th', {}, _('VLAN')),
+						E('th', {}, _('PPPoE')),
+						E('th', {}, _('Gateway (ARP)')),
+						E('th', {}, _('DHCP offer')),
+						E('th', {}, _('DHCP server'))
+					]),
+					prows
+				])
 			]);
 		}
 
+		var total = 0;
 		var rows = results.map(function (entry) {
-			var classes = Object.keys(entry.classes || {}).sort().map(function (name) {
-				return '%s=%d'.format(name, entry.classes[name]);
-			}).join(', ');
-			return E('tr', {}, [
-				E('td', {}, entry.vid === null ? _('untagged') : String(entry.vid)),
-				E('td', {}, String(entry.packets)),
-				E('td', {}, classes)
+			var pkts = entry.packets || 0;
+			total += pkts;
+			var isUntagged = entry.vid === null;
+			return E('tr', isUntagged ? { 'class': 'vscan-untagged' } : {}, [
+				E('td', {}, isUntagged ? _('untagged') + ' (null)' : String(entry.vid)),
+				E('td', {}, String(pkts)),
+				E('td', {}, classChips(entry.classes))
 			]);
 		});
-		return E('table', { 'class': 'table table-condensed' }, [
-			E('tr', { 'class': 'tr-table-titles' }, [
-				E('th', {}, _('VLAN')),
-				E('th', {}, _('Packets')),
-				E('th', {}, _('Traffic classes'))
-			]),
-			rows
+		rows.push(E('tr', { 'class': 'vscan-total' }, [
+			E('td', {}, _('Total')),
+			E('td', {}, String(total)),
+			E('td', {}, '')
+		]));
+		return E('div', {}, [
+			E('div', { 'class': 'vscan-results-head' }, _('Results')),
+			E('table', { 'class': 'vscan-table' }, [
+				E('tr', { 'class': 'vscan-thead' }, [
+					E('th', {}, _('VLAN')),
+					E('th', {}, _('Packets')),
+					E('th', {}, _('Traffic classes'))
+				]),
+				rows
+			])
 		]);
 	},
 
 	renderJob: function (job) {
 		var self = this;
-		var body = [
-			E('strong', {}, _('Job %s').format(jobTime(job.id))),
-			' ',
-			statusBadge(job.status),
-			E('span', { 'class': 'label label-default' }, job.mode || '?'),
-			E('span', { 'class': 'label label-default' }, job.interface || '?')
-		];
+
+		var actions = [];
+		if (job.status == 'running') {
+			actions.push(E('button', {
+				'class': 'btn cbi-button cbi-button-negative',
+				'click': ui.createHandlerFn(function () {
+					return ctlExec([ 'stop', job.id ]).then(function () {
+						return self.refreshJobs();
+					});
+				})
+			}, _('Stop')));
+		}
+		else {
+			actions.push(E('button', {
+				'class': 'btn cbi-button cbi-button-remove',
+				'click': ui.createHandlerFn(function () {
+					return ui.confirm(_('Really delete job %s and its results?').format(jobTime(job.id)), _('Delete'))
+						.then(function (confirmed) {
+							if (!confirmed)
+								return;
+							return ctlExec([ 'delete', job.id ]).then(function (reply) {
+								if (reply && reply.code != 0)
+									ui.addNotification(null, E('p', {}, _('Failed to delete the job: %s').format(reply.stdout || reply.code)), 'error');
+								return self.refreshJobs();
+							});
+						});
+				})
+			}, _('Delete')));
+		}
+
+		var head = E('div', { 'class': 'vscan-head' }, [
+			E('div', { 'class': 'vscan-badges' }, [
+				E('span', { 'class': 'vscan-title' }, _('Job %s').format(jobTime(job.id))),
+				statusBadge(job.status),
+				E('span', { 'class': 'vscan-tag' }, modeText(job.mode)),
+				E('span', { 'class': 'vscan-tag' }, job.interface || _('auto-detect'))
+			]),
+			E('div', { 'class': 'vscan-actions' }, actions)
+		]);
+
+		var body = [ head, self.paramLine(job) ];
 
 		if (job.status == 'running')
-			body = body.concat([
-				' ',
-				E('em', {}, progressText(job)),
-				E('button', {
-					'class': 'btn cbi-button cbi-button-negative',
-					'style': 'margin-left: 1em; float: right',
-					'click': ui.createHandlerFn(function () {
-						return ctlExec([ 'stop', job.id ]).then(function () {
-							return self.refreshJobs();
-						});
-					})
-				}, _('Stop'))
-			]);
-		else
-			body = body.concat([
-				job.status == 'interrupted'
-					? E('em', {}, ' ' + _('The scanner process is no longer running; partial results were kept.'))
-					: (job.status == 'failed'
-						? E('em', {}, ' ' + _('The scan failed - see the system log for details.'))
-						: null),
-				E('button', {
-					'class': 'btn cbi-button cbi-button-remove',
-					'style': 'margin-left: 1em; float: right',
-					'click': ui.createHandlerFn(function () {
-						return ui.confirm(_('Really delete job %s and its results?').format(jobTime(job.id)), _('Delete'))
-							.then(function (confirmed) {
-								if (!confirmed)
-									return;
-								return ctlExec([ 'delete', job.id ]).then(function (reply) {
-									if (reply && reply.code != 0)
-										ui.addNotification(null, E('p', {}, _('Failed to delete the job: %s').format(reply.stdout || reply.code)), 'error');
-									return self.refreshJobs();
-								});
-							});
-					})
-				}, _('Delete'))
-			]);
+			body.push(E('div', { 'class': 'vscan-meta' }, progressText(job)));
+		else if (job.status == 'interrupted')
+			body.push(E('div', { 'class': 'vscan-note' }, _('The scanner process is no longer running; partial results were kept.')));
+		else if (job.status == 'failed')
+			body.push(E('div', { 'class': 'vscan-note' }, _('The scan failed - see the system log for details.')));
 
 		if (job.results)
-			body = body.concat([ E('div', { 'style': 'margin-top: .5em' }, this.renderResults(job)) ]);
+			body.push(self.renderResults(job));
 
-		return E('div', { 'class': 'cbi-section', 'style': 'margin-bottom: 1em' }, [
-			E('div', { 'class': 'cbi-section-descr' }, body)
-		]);
+		return E('div', { 'class': 'vscan-card' }, body);
 	},
 
 	refreshJobs: function () {
@@ -249,6 +369,8 @@ return view.extend({
 
 	render: function (data) {
 		var self = this;
+		ensureCss();
+
 		var interfaces = [ '' ];
 		if (data[0] && data[0].code == 0) {
 			try {

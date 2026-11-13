@@ -34,6 +34,9 @@ msgstr "探测 PON 上行承载了哪些 802.1Q VLAN。被动监听不发送任�
 msgid "Duration (seconds)"
 msgstr "监听时长（秒）"
 
+msgid "Duration"
+msgstr "时长"
+
 msgid "Duration must be between 1 and 86400 seconds."
 msgstr "时长必须在 1 到 86400 秒之间。"
 
@@ -61,6 +64,9 @@ msgstr "模式"
 msgid "No scan jobs yet. Start one above; jobs survive page reloads and LuCI logins until the device reboots."
 msgstr "还没有扫描任务。请在上方启动一个；任务会跨页面刷新和 LuCI 重新登录保留，直到设备重启。"
 
+msgid "No packets captured during this scan window."
+msgstr "本次扫描窗口内没有捕获到任何数据包。"
+
 msgid "PPPoE"
 msgstr "PPPoE"
 
@@ -79,6 +85,9 @@ msgstr "确定删除任务 %s 及其结果吗？"
 msgid "Scan jobs"
 msgstr "扫描任务"
 
+msgid "Results"
+msgstr "结果"
+
 msgid "Start scan"
 msgstr "启动扫描"
 
@@ -94,6 +103,9 @@ msgstr "扫描进程已不在运行；已保留部分结果。"
 msgid "Traffic classes"
 msgstr "流量分类"
 
+msgid "Total"
+msgstr "合计"
+
 msgid "VLAN"
 msgstr "VLAN"
 
@@ -106,11 +118,17 @@ msgstr "VLAN 扫描"
 msgid "VLAN list must be \"35,100,1000-1010\" or \"all\"."
 msgstr "VLAN 列表必须为 \"35,100,1000-1010\" 或 \"all\"。"
 
+msgid "VLANs"
+msgstr "VLAN 列表"
+
 msgid "VLAN scan control failed: %s"
 msgstr "扫描控制命令执行失败：%s"
 
 msgid "auto-detect"
 msgstr "自动探测"
+
+msgid "all"
+msgstr "全部"
 
 msgid "listening…"
 msgstr "监听中……"
