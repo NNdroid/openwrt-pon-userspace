@@ -8,7 +8,7 @@ LUCI_DEPENDS:=+luci-base +airoha-vlanscan
 LUCI_PKGARCH:=all
 
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=Apache-2.0
 
 include $(TOPDIR)/feeds/luci/luci.mk

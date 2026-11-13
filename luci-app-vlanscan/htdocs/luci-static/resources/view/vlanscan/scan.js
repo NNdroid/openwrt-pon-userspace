@@ -70,6 +70,13 @@ function durationText(seconds) {
 	return (seconds / 3600).toFixed(1) + ' h';
 }
 
+/* Job logs are files, not terminals. Older scanner builds ended progress
+ * heartbeats with a bare CR to overwrite the line in place; a browser <pre>
+ * does not treat CR as a line break, so normalize CR / CRLF to LF here. */
+function normalizeLog(text) {
+	return (text || '').replace(/\r\n?/g, '\n');
+}
+
 /* Theme-neutral styles: every surface uses translucent neutral tones and
  * inherits the current text colour, so the view stays readable in both
  * light and dark LuCI themes. Accent colours are used only as small chips. */
@@ -415,10 +422,13 @@ return view.extend({
 				return entry.vid;
 			});
 			if (discovered.length) {
+				/* LuCI's createHandlerFn() takes (ctx, fn, ...args). Passing a
+				 * bare function makes it return null and silently drops the
+				 * click handler. */
 				head.push(E('button', {
 					'class': 'btn cbi-button',
 					'style': 'margin-left:auto',
-					'click': ui.createHandlerFn(function () {
+					'click': ui.createHandlerFn(self, function () {
 						return self.probeDiscovered(discovered);
 					})
 				}, _('Probe these VLANs')));
@@ -437,7 +447,7 @@ return view.extend({
 		/* Logs have their own tab; this button selects this job there. */
 		actions.push(E('button', {
 			'class': 'btn cbi-button',
-			'click': ui.createHandlerFn(function () {
+			'click': ui.createHandlerFn(self, function () {
 				self.logSelectedId = job.id;
 				self.setTab('log');
 			})
@@ -445,7 +455,7 @@ return view.extend({
 		if (job.status == 'running') {
 			actions.push(E('button', {
 				'class': 'btn cbi-button cbi-button-negative',
-				'click': ui.createHandlerFn(function () {
+				'click': ui.createHandlerFn(self, function () {
 					return ctlExec([ 'stop', job.id ]).then(function () {
 						return self.refreshJobs();
 					});
@@ -455,7 +465,7 @@ return view.extend({
 		else {
 			actions.push(E('button', {
 				'class': 'btn cbi-button cbi-button-remove',
-				'click': ui.createHandlerFn(function () {
+				'click': ui.createHandlerFn(self, function () {
 					return ui.confirm(_('Really delete job %s and its results?').format(jobTime(job.id)), _('Delete'))
 						.then(function (confirmed) {
 							if (!confirmed)
@@ -679,11 +689,12 @@ return view.extend({
 			self.logParamsNode.appendChild(paramChips(selected));
 		}
 
-		var text = selected && selected.log ? selected.log : '';
-		var allLines = text.replace(/\s+$/, '').split('\n');
-		var lineCount = text.trim() ? allLines.length : 0;
+		var text = normalizeLog(selected && selected.log ? selected.log : '');
+		var trimmed = text.replace(/\s+$/, '');
+		var allLines = trimmed.split('\n');
+		var lineCount = trimmed ? allLines.length : 0;
 		var truncated = lineCount > MAX_LOG_LINES;
-		var shown = truncated ? allLines.slice(-MAX_LOG_LINES).join('\n') : text.replace(/\s+$/, '');
+		var shown = truncated ? allLines.slice(-MAX_LOG_LINES).join('\n') : trimmed;
 
 		if (!shown.trim()) {
 			shown = selected
