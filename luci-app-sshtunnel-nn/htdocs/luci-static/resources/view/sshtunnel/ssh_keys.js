@@ -99,6 +99,11 @@ function _renderSshKeys(sshKeys) {
 		])
 	].concat(trs));
 
+	const keysBody = (entries.length > 0)
+		? table
+		: E('div', {'class': 'cbi-section-descr'},
+			_('No SSH keys have been found yet. You can generate one below.'));
+
 	const keyGenBtn = E('div', {}, [
 		E('h4', _('Generate a new key')),
 		E('form', {
@@ -131,7 +136,7 @@ function _renderSshKeys(sshKeys) {
 			_('In LuCI you can do that with <a %s>System / Administration / SSH-Keys</a>')
 				.format('href="/cgi-bin/luci/admin/system/admin/sshkeys"')
 		),
-		table, keyGenBtn,
+		keysBody, keyGenBtn,
 	]);
 }
 

@@ -55,12 +55,17 @@ function _renderKnownHosts(knownHosts) {
 		])
 	].concat(trs));
 
+	const hostsBody = (rows.length > 0)
+		? table
+		: E('div', {'class': 'cbi-section-descr'},
+			_('No known hosts have been recorded yet.'));
+
 	return E('div', {'class': 'cbi-section cbi-tblsection'}, [
-		E('h3', _('Known hosts ')),
+		E('h3', _('Known hosts')),
 		E('div', {'class': 'cbi-section-descr'},
 			_('Keys of SSH servers found in %s.').format('<code>/root/.ssh/known_hosts</code>')
 		),
-		table
+		hostsBody
 	]);
 }
 

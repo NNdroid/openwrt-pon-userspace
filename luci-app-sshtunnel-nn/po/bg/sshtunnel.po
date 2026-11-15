@@ -315,3 +315,11 @@ msgstr ""
 #: applications/luci-app-sshtunnel/htdocs/luci-static/resources/view/sshtunnel/ssh_servers.js:124
 msgid "Yes"
 msgstr "Да"
+
+#: applications/luci-app-sshtunnel/htdocs/luci-static/resources/view/sshtunnel/ssh_keys.js:135
+msgid "No SSH keys have been found yet. You can generate one below."
+msgstr ""
+
+#: applications/luci-app-sshtunnel/htdocs/luci-static/resources/view/sshtunnel/ssh_hosts.js:64
+msgid "No known hosts have been recorded yet."
+msgstr ""
