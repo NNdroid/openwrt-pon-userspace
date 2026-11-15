@@ -182,7 +182,20 @@ load_server() {
 		return 1
 	fi
 
-	# Dropbear dbclient uses -y / -yy instead of -o StrictHostKeyChecking=...
+	# On images without openssh-client, /usr/bin/ssh is commonly a symlink to
+	# Dropbear's dbclient, so the path alone is not a reliable indicator. Both
+	# clients print their version for -V and exit successfully; OpenSSH prints
+	# "OpenSSH_..." while dbclient prints "Dropbear v...".
+	local ssh_version
+	ssh_version="$("$PROG" -V 2>&1)" || ssh_version=""
+	case "$ssh_version" in
+		*[Dd]ropbear*) CLIENT=dropbear ;;
+	esac
+	_log "server $server: using $PROG ($CLIENT)"
+
+	# Older Dropbear releases ignore "-o StrictHostKeyChecking=..." and need
+	# -y / -yy instead. Newer ones accept both, mapping them to the same flags,
+	# so passing only -y / -yy here works across versions.
 	local db_StrictHostKeyChecking=""
 	if [ "$CLIENT" = "dropbear" ]; then
 		case "$StrictHostKeyChecking" in
@@ -191,25 +204,38 @@ load_server() {
 		esac
 	fi
 
+	# Options understood by both ssh(1) and dbclient.
 	local ARGS="$hostname $ARGS_tunnels \
 	${port:+-p $port} \
 	${user:+-l $user} \
 	${IdentityFile:+-i $IdentityFile} \
-	${CheckHostIP:+-o CheckHostKeyChecking=$CheckHostIP} \
-	${VerifyHostKeyDNS:+-o VerifyHostKeyDNS=$VerifyHostKeyDNS} \
 	${Compression:+-o Compression=$Compression} \
+	${ServerAliveInterval:+-o ServerAliveInterval=$ServerAliveInterval} \
+	"
+	# OpenSSH-only options: dbclient rejects them with "Ignoring unknown
+	# configuration option" warnings, so only pass them to a real OpenSSH.
+	if [ "$CLIENT" = "openssh" ]; then
+		ARGS="$ARGS \
+	${CheckHostIP:+-o CheckHostIP=$CheckHostIP} \
+	${VerifyHostKeyDNS:+-o VerifyHostKeyDNS=$VerifyHostKeyDNS} \
 	${LogLevel:+-o LogLevel=$LogLevel} \
 	${PKCS11Provider:+-o PKCS11Provider=$PKCS11Provider} \
 	${TCPKeepAlive:+-o TCPKeepAlive=$TCPKeepAlive} \
 	${ServerAliveCountMax:+-o ServerAliveCountMax=$ServerAliveCountMax} \
-	${ServerAliveInterval:+-o ServerAliveInterval=$ServerAliveInterval} \
-	"
-	if [ "$CLIENT" = "openssh" ]; then
-		ARGS="$ARGS ${StrictHostKeyChecking:+-o StrictHostKeyChecking=$StrictHostKeyChecking}"
+	${StrictHostKeyChecking:+-o StrictHostKeyChecking=$StrictHostKeyChecking}"
 	else
 		ARGS="$ARGS $db_StrictHostKeyChecking"
 	fi
-	ARGS="$ARGS -o ExitOnForwardFailure=yes -o BatchMode=yes -nN"
+	ARGS="$ARGS -o ExitOnForwardFailure=yes -o BatchMode=yes"
+
+	# -n (redirect stdin from /dev/null) is OpenSSH-only and makes dbclient
+	# print "WARNING: Ignoring unknown option -n". -N (no remote command) is
+	# supported by both clients and is what a tunnel needs.
+	if [ "$CLIENT" = "openssh" ]; then
+		ARGS="$ARGS -nN"
+	else
+		ARGS="$ARGS -N"
+	fi
 
 	# Persistent reconnect loop: keep the tunnel up across transient network
 	# drops instead of letting procd give up after a couple of quick failures

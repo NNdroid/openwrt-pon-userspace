@@ -10,6 +10,14 @@
 			"acl": [ "luci-app-sshtunnel-nn" ]
 		}
 	},
+	"admin/services/sshtunnel-nn/ssh_status": {
+		"title": "Status",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "sshtunnel/ssh_status"
+		}
+	},
 	"admin/services/sshtunnel-nn/ssh_keys": {
 		"title": "SSH Keys",
 		"order": 10,

@@ -4,16 +4,24 @@
 'require uci';
 'require ui';
 'require view';
+'require view.sshtunnel.status as status';
 
 return view.extend({
 	load() {
-		return L.resolveDefault(fs.list('/root/.ssh/'), []).then(function (entries) {
-			const sshKeyNames = _findAllPossibleIdKeys(entries);
-			return Promise.resolve(sshKeyNames);
-		});
+		return Promise.all([
+			L.resolveDefault(fs.list('/root/.ssh/'), []).then(function (entries) {
+				return _findAllPossibleIdKeys(entries);
+			}),
+			status.load()
+		]);
 	},
 
-	render(sshKeyNames) {
+	/* load() resolves to an array, so render() receives that whole array as
+	 * its first argument. Use explicit indexes - destructuring here would
+	 * unpack the array instead. */
+	render(data) {
+		const sshKeyNames = data[0];
+		const statusData = data[1];
 		if (sshKeyNames.length === 0) {
 			ui.addNotification(null, E('p', _('No SSH keys found, <a %s>generate a new one</a>').format('href="./ssh_keys"')), 'warning');
 		}
@@ -22,7 +30,8 @@ return view.extend({
 
 		m = new form.Map('sshtunnel', _('SSH Tunnels'),
 			_('This configures <a %s>SSH Tunnels</a>.')
-				.format('href="https://openwrt.org/docs/guide-user/services/ssh/sshtunnel"')
+				.format('href="https://openwrt.org/docs/guide-user/services/ssh/sshtunnel"') + '<br />' +
+			_('Each server section defines one SSH connection. Tunnels refer to a server by name and share that connection.')
 		);
 
 		s = m.section(form.GridSection, 'server', _('Servers'));
@@ -33,23 +42,30 @@ return view.extend({
 		o = s.tab('general', _('General Settings'));
 		o = s.tab('advanced', _('Advanced Settings'));
 
-		o = s.taboption('general', form.Value, 'hostname', _('Hostname'));
+		o = s.taboption('general', form.Value, 'hostname', _('Hostname'),
+			_('DNS name or IP address of the remote SSH server. It is also used to look up the host key in the known_hosts file.')
+		);
 		o.placeholder = 'example.com';
 		o.datatype = 'host';
 		o.rmempty = false;
 
-		o = s.taboption('general', form.Value, 'port', _('Port'));
+		o = s.taboption('general', form.Value, 'port', _('Port'),
+			_('SSH port on the remote host. Defaults to 22 when left empty.')
+		);
 		o.placeholder = '22';
 		o.datatype = 'port';
 
-		o = s.taboption('general', form.Value, 'user', _('User'));
+		o = s.taboption('general', form.Value, 'user', _('User'),
+			_('Login name on the remote host. Defaults to root; root is required for TUN/TAP VPN tunnels.')
+		);
 		o.default = 'root';
 
 		o = s.taboption('general', form.Value, 'IdentityFile', _('Identity Key'),
 			_('Private key file with authentication identity.') + '<br />' +
 			_('If not specified then a default will be used.') + '<br />' +
 			_('For Dropbear %s').format('<code>id_dropbear</code>') + '<br />' +
-			_('For OpenSSH %s').format('<code>id_rsa, id_ed25519, id_ecdsa</code>') +
+			_('For OpenSSH %s').format('<code>id_rsa, id_ed25519, id_ecdsa</code>') + '<br />' +
+			_('The key must be passphrase-free and readable by the SSH client selected on this device.') +
 			_manSshConfig('IdentityFile') +
 			_discoveredKeysHint(sshKeyNames)
 		);
@@ -57,7 +73,10 @@ return view.extend({
 		o.optional = true;
 
 
-		o = s.taboption('advanced', form.ListValue, 'LogLevel', _('Log level'));
+		o = s.taboption('advanced', form.ListValue, 'LogLevel', _('Log level'),
+			_('Verbosity of the SSH client log.') + '<br />' +
+			_('OpenSSH only; Dropbear ignores this option.')
+		);
 		o.value('QUIET', 'QUIET');
 		o.value('FATAL', 'FATAL');
 		o.value('ERROR', 'ERROR');
@@ -70,7 +89,8 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.taboption('advanced', form.ListValue, 'Compression', _('Use compression'),
-			_('Compression may be useful on slow connections.') +
+			_('Compression may be useful on slow connections.') + '<br />' +
+			_('Supported by both OpenSSH and Dropbear.') +
 			_manSshConfig('Compression')
 		);
 		o.value('yes', _('Yes'));
@@ -79,7 +99,8 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.taboption('advanced', form.Value, 'retrydelay', _('Retry delay'),
-			_('Delay after a connection failure before trying to reconnect.')
+			_('Delay after a connection failure before trying to reconnect.') + '<br />' +
+			_('Seconds to wait before reconnecting after the client exits. Minimum 1; the service uses 60 when unset.')
 		);
 		o.placeholder = '10';
 		o.default = '10';
@@ -88,7 +109,8 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.taboption('advanced', form.Value, 'ServerAliveCountMax', _('Server keep alive attempts'),
-			_('The number of server alive messages which may be sent before SSH disconnects from the server.') +
+			_('The number of server alive messages which may be sent before SSH disconnects from the server.') + '<br />' +
+			_('OpenSSH only; Dropbear ignores this option.') +
 			_manSshConfig('ServerAliveCountMax')
 		);
 		o.placeholder = '3';
@@ -97,6 +119,8 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.taboption('advanced', form.Value, 'ServerAliveInterval', _('Server keep alive interval (seconds)'),
+			_('Send a keepalive probe after this many seconds of inactivity.') + '<br />' +
+			_('Supported by both OpenSSH and Dropbear.') +
 			_manSshConfig('ServerAliveInterval')
 		);
 		o.optional = true;
@@ -106,7 +130,8 @@ return view.extend({
 
 		o = s.taboption('advanced', form.ListValue, 'CheckHostIP', _('Check host IP'),
 			_('Check the host IP address in the %s file.').format('<code>known_hosts</code>') + '<br />' +
-			_('This allows SSH to detect whether a host key changed due to DNS spoofing.') +
+			_('This allows SSH to detect whether a host key changed due to DNS spoofing.') + '<br />' +
+			_('OpenSSH only; Dropbear ignores this option.') +
 			_manSshConfig('CheckHostIP')
 		);
 		o.value('yes', _('Yes'));
@@ -115,7 +140,8 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.taboption('advanced', form.ListValue, 'StrictHostKeyChecking', _('Strict host key checking'),
-			_('Refuse to connect to hosts whose host key has changed.') +
+			_('Refuse to connect to hosts whose host key has changed.') + '<br />' +
+			_('For Dropbear, accept-new and no are translated to -y and -yy.') +
 			_manSshConfig('StrictHostKeyChecking')
 		);
 		o.value('accept-new', _('Accept new and check if not changed'));
@@ -127,12 +153,15 @@ return view.extend({
 		o = s.taboption('advanced', form.Value, 'ProxyCommand', _('Proxy tunnel command'),
 			_('The command to use to connect to the server.') + '<br />' +
 			_('For example, the following command would connect via an HTTP proxy:') + '<br />' +
-			'<code>ncat --proxy-type http --proxy-auth alice:secret --proxy 192.168.1.2:8080 %h %p</code>' +
+			'<code>ncat --proxy-type http --proxy-auth alice:secret --proxy 192.168.1.2:8080 %h %p</code>' + '<br />' +
+			_('Passed as -o ProxyCommand to both clients. Leave empty for a direct connection.') +
 			_manSshConfig('ProxyCommand')
 		);
 		o.modalonly = true;
 
-		return m.render();
+		return m.render().then(function (mapNode) {
+			return E('div', {}, [ status.renderSummary(statusData), mapNode ]);
+		});
 	},
 });
 
@@ -172,4 +201,3 @@ function _discoveredKeysHint(sshKeyNames) {
 		sshKeyNames.map(function (name) { return '<code>' + name + '</code>'; }).join(', ')
 	);
 }
-

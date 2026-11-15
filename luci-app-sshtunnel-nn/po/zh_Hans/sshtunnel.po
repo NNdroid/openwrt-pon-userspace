@@ -323,3 +323,213 @@ msgstr "尚未发现任何 SSH 密钥。你可以在下方生成一枚新密钥�
 #: applications/luci-app-sshtunnel/htdocs/luci-static/resources/view/sshtunnel/ssh_hosts.js:64
 msgid "No known hosts have been recorded yet."
 msgstr "尚未记录任何已知主机。"
+
+msgid "Each server section defines one SSH connection. Tunnels refer to a server by name and share that connection."
+msgstr "每个服务器配置节定义一条 SSH 连接。隧道通过名称引用服务器，多条隧道可共用同一条连接。"
+
+msgid "DNS name or IP address of the remote SSH server. It is also used to look up the host key in the known_hosts file."
+msgstr "远端 SSH 服务器的域名或 IP 地址，同时也用于在 known_hosts 文件中查找主机密钥。"
+
+msgid "SSH port on the remote host. Defaults to 22 when left empty."
+msgstr "远端主机的 SSH 端口，留空时默认使用 22。"
+
+msgid "Login name on the remote host. Defaults to root; root is required for TUN/TAP VPN tunnels."
+msgstr "远端主机的登录用户名，默认为 root；TUN/TAP VPN 隧道必须使用 root。"
+
+msgid "The key must be passphrase-free and readable by the SSH client selected on this device."
+msgstr "密钥必须没有口令保护，且能被本设备所选用的 SSH 客户端读取。"
+
+msgid "Verbosity of the SSH client log."
+msgstr "SSH 客户端日志的详细程度。"
+
+msgid "OpenSSH only; Dropbear ignores this option."
+msgstr "仅 OpenSSH 有效，Dropbear 会忽略此选项。"
+
+msgid "Supported by both OpenSSH and Dropbear."
+msgstr "OpenSSH 与 Dropbear 均支持。"
+
+msgid "Seconds to wait before reconnecting after the client exits. Minimum 1; the service uses 60 when unset."
+msgstr "客户端退出后等待多少秒再重连。最小值为 1；未配置时服务使用 60 秒。"
+
+msgid "Send a keepalive probe after this many seconds of inactivity."
+msgstr "连接空闲超过该秒数后发送一次保活探测。"
+
+msgid "For Dropbear, accept-new and no are translated to -y and -yy."
+msgstr "使用 Dropbear 时，accept-new 与 no 分别转换为 -y 和 -yy。"
+
+msgid "Passed as -o ProxyCommand to both clients. Leave empty for a direct connection."
+msgstr "以 -o ProxyCommand 形式传给两种客户端；留空表示直接连接。"
+
+msgid "Discovered keys in %s: %s"
+msgstr "在 %s 中发现以下密钥：%s"
+
+msgid "SSH Tunnels Status"
+msgstr "SSH 隧道状态"
+
+msgid "Runtime information about the sshtunnel service, its forwarding instances and recent log entries."
+msgstr "显示 sshtunnel 服务、各转发实例的运行状态以及最近的系统日志。"
+
+msgid "Four forwarding types are available. Each tunnel is bound to one server section; several tunnels can share a single SSH connection."
+msgstr "共支持四种转发类型。每条隧道绑定到一个服务器配置节，多条隧道可以共用同一条 SSH 连接。"
+
+msgid "Equivalent to ssh -R: a port on the remote host is forwarded to a service reachable from this device."
+msgstr "相当于 ssh -R：在远端主机开放端口，转发到本设备可访问的服务。"
+
+msgid "Disabled sections remain in the configuration but are not started."
+msgstr "禁用后配置仍会保留，但不会启动该隧道。"
+
+msgid "Binding to * requires GatewayPorts on the remote SSH server, otherwise only loopback is reachable."
+msgstr "绑定为 * 需要远端 SSH 服务器开启 GatewayPorts，否则只能从本机回环地址访问。"
+
+msgid "TCP port opened on the remote host."
+msgstr "在远端主机上开放的 TCP 端口。"
+
+msgid "Destination host as seen from this device."
+msgstr "从本设备视角看到的目标主机地址。"
+
+msgid "TCP port of the destination service on this device or on the given local address."
+msgstr "本设备或所填本地地址上目标服务的 TCP 端口。"
+
+msgid "Equivalent to ssh -L: a port on this device is forwarded to a service reachable from the remote host."
+msgstr "相当于 ssh -L：在本设备开放端口，转发到远端主机可访问的服务。"
+
+msgid "Use 127.0.0.1 or localhost to accept connections from this device only."
+msgstr "填写 127.0.0.1 或 localhost 可限定仅本设备访问。"
+
+msgid "TCP port opened on this device."
+msgstr "在本设备上开放的 TCP 端口。"
+
+msgid "Destination host as seen from the remote SSH server."
+msgstr "从远端 SSH 服务器视角看到的目标主机地址。"
+
+msgid "TCP port of the destination service on the remote side."
+msgstr "远端目标服务的 TCP 端口。"
+
+msgid "Equivalent to ssh -D: a SOCKS5 proxy is opened on this device and exits through the remote host."
+msgstr "相当于 ssh -D：在本设备开启 SOCKS5 代理，流量经远端主机出口。"
+
+msgid "Clients must be configured to use a SOCKS5 proxy at this address and port."
+msgstr "客户端需将 SOCKS5 代理设置为该地址和端口。"
+
+msgid "TCP port on which the SOCKS5 proxy listens."
+msgstr "SOCKS5 代理监听的 TCP 端口。"
+
+msgid "Equivalent to ssh -w: an IP or Ethernet tunnel is built over SSH. Requires root on both ends and a tun/tap device."
+msgstr "相当于 ssh -w：通过 SSH 建立 IP 或以太网隧道，要求两端均为 root 且存在 tun/tap 设备。"
+
+msgid "TUN carries IP packets (point-to-point), TAP carries Ethernet frames (bridging)."
+msgstr "TUN 承载 IP 报文（点对点），TAP 承载以太网帧（桥接）。"
+
+msgid "Tunnel device number, or any to let the SSH server choose a free device."
+msgstr "隧道设备编号；填 any 由 SSH 服务器自动选择空闲设备。"
+
+msgid "Server section whose SSH connection carries this tunnel."
+msgstr "承载该隧道的 SSH 连接所对应的服务器配置节。"
+
+msgid "Disabled"
+msgstr "已禁用"
+
+msgid "Not running"
+msgstr "未运行"
+
+msgid "Active (remote side)"
+msgstr "已建立（远端）"
+
+msgid "Active (tun/tap)"
+msgstr "已建立（tun/tap）"
+
+msgid "Listening"
+msgstr "正在监听"
+
+msgid "Not listening"
+msgstr "未监听"
+
+msgid "Runtime status unavailable."
+msgstr "无法获取运行状态。"
+
+msgid "Open status page"
+msgstr "打开状态页"
+
+msgid "Running (%s instance(s))"
+msgstr "运行中（%s 个实例）"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Service"
+msgstr "服务"
+
+msgid "Client"
+msgstr "客户端"
+
+msgid "Listening ports"
+msgstr "隧道监听端口"
+
+msgid "Log entries"
+msgstr "日志条数"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "Forward"
+msgstr "转发"
+
+msgid "State"
+msgstr "状态"
+
+msgid "No tunnels configured."
+msgstr "尚未配置任何隧道。"
+
+msgid "Forwarding Status"
+msgstr "转发状态"
+
+msgid "Local and dynamic forwards are checked against the listening TCP ports on this device. Remote forwards are bound on the peer and cannot be probed locally."
+msgstr "本地转发与动态转发依据本设备的 TCP 监听端口判断；远端转发绑定在对端，无法在本机探测。"
+
+msgid "Service Status"
+msgstr "服务状态"
+
+msgid "Runtime status unavailable. The service may be stopped or the ACL permissions may be missing."
+msgstr "无法获取运行状态：服务可能已停止，或缺少相应的 ACL 权限。"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "PID"
+msgstr "PID"
+
+msgid "Uptime"
+msgstr "运行时长"
+
+msgid "Command Line"
+msgstr "命令行"
+
+msgid "No running instances."
+msgstr "没有运行中的实例。"
+
+msgid "Program"
+msgstr "程序"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Priority"
+msgstr "优先级"
+
+msgid "Message"
+msgstr "消息"
+
+msgid "No log entries found."
+msgstr "未找到相关日志。"
+
+msgid "Recent Log"
+msgstr "最近日志"
+
+msgid "Most recent sshtunnel syslog entries (newest first)."
+msgstr "最近的 sshtunnel 系统日志（新的在前）。"
+
+msgid "Refresh"
+msgstr "刷新"

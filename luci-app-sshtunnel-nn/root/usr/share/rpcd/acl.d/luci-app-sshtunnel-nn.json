@@ -1,15 +1,27 @@
 {
 	"luci-app-sshtunnel-nn": {
-		"description": "Grant UCI access for luci-app-sshtunnel-nn",
+		"description": "Grant UCI, key file and runtime status access for luci-app-sshtunnel-nn",
 		"read": {
 			"file": {
 				"/root/.ssh/": [ "list" ],
 				"/root/.ssh/*.pub": [ "read" ],
 				"/root/.ssh/known_hosts": [ "read" ],
+				"/proc/net/tcp": [ "read" ],
+				"/proc/net/tcp6": [ "read" ],
+				"/proc/*/net/tcp": [ "read" ],
+				"/proc/*/net/tcp6": [ "read" ],
+				"/proc/uptime": [ "read" ],
+				"/proc/*/stat": [ "read" ],
 				"/usr/bin/ssh-keygen": [ "list" ],
 				"/usr/bin/ssh-keygen *": [ "exec" ],
 				"/usr/bin/dropbearkey": [ "list" ],
 				"/usr/bin/dropbearkey *": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "list", "read", "stat", "exec" ],
+				"log": [ "read" ],
+				"service": [ "list" ],
+				"uci": [ "changes", "get" ]
 			},
 			"uci": [ "sshtunnel" ]
 		},

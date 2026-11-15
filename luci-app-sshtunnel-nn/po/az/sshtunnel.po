@@ -316,3 +316,213 @@ msgstr ""
 #: applications/luci-app-sshtunnel/htdocs/luci-static/resources/view/sshtunnel/ssh_hosts.js:64
 msgid "No known hosts have been recorded yet."
 msgstr ""
+
+msgid "Each server section defines one SSH connection. Tunnels refer to a server by name and share that connection."
+msgstr ""
+
+msgid "DNS name or IP address of the remote SSH server. It is also used to look up the host key in the known_hosts file."
+msgstr ""
+
+msgid "SSH port on the remote host. Defaults to 22 when left empty."
+msgstr ""
+
+msgid "Login name on the remote host. Defaults to root; root is required for TUN/TAP VPN tunnels."
+msgstr ""
+
+msgid "The key must be passphrase-free and readable by the SSH client selected on this device."
+msgstr ""
+
+msgid "Verbosity of the SSH client log."
+msgstr ""
+
+msgid "OpenSSH only; Dropbear ignores this option."
+msgstr ""
+
+msgid "Supported by both OpenSSH and Dropbear."
+msgstr ""
+
+msgid "Seconds to wait before reconnecting after the client exits. Minimum 1; the service uses 60 when unset."
+msgstr ""
+
+msgid "Send a keepalive probe after this many seconds of inactivity."
+msgstr ""
+
+msgid "For Dropbear, accept-new and no are translated to -y and -yy."
+msgstr ""
+
+msgid "Passed as -o ProxyCommand to both clients. Leave empty for a direct connection."
+msgstr ""
+
+msgid "Discovered keys in %s: %s"
+msgstr ""
+
+msgid "SSH Tunnels Status"
+msgstr ""
+
+msgid "Runtime information about the sshtunnel service, its forwarding instances and recent log entries."
+msgstr ""
+
+msgid "Four forwarding types are available. Each tunnel is bound to one server section; several tunnels can share a single SSH connection."
+msgstr ""
+
+msgid "Equivalent to ssh -R: a port on the remote host is forwarded to a service reachable from this device."
+msgstr ""
+
+msgid "Disabled sections remain in the configuration but are not started."
+msgstr ""
+
+msgid "Binding to * requires GatewayPorts on the remote SSH server, otherwise only loopback is reachable."
+msgstr ""
+
+msgid "TCP port opened on the remote host."
+msgstr ""
+
+msgid "Destination host as seen from this device."
+msgstr ""
+
+msgid "TCP port of the destination service on this device or on the given local address."
+msgstr ""
+
+msgid "Equivalent to ssh -L: a port on this device is forwarded to a service reachable from the remote host."
+msgstr ""
+
+msgid "Use 127.0.0.1 or localhost to accept connections from this device only."
+msgstr ""
+
+msgid "TCP port opened on this device."
+msgstr ""
+
+msgid "Destination host as seen from the remote SSH server."
+msgstr ""
+
+msgid "TCP port of the destination service on the remote side."
+msgstr ""
+
+msgid "Equivalent to ssh -D: a SOCKS5 proxy is opened on this device and exits through the remote host."
+msgstr ""
+
+msgid "Clients must be configured to use a SOCKS5 proxy at this address and port."
+msgstr ""
+
+msgid "TCP port on which the SOCKS5 proxy listens."
+msgstr ""
+
+msgid "Equivalent to ssh -w: an IP or Ethernet tunnel is built over SSH. Requires root on both ends and a tun/tap device."
+msgstr ""
+
+msgid "TUN carries IP packets (point-to-point), TAP carries Ethernet frames (bridging)."
+msgstr ""
+
+msgid "Tunnel device number, or any to let the SSH server choose a free device."
+msgstr ""
+
+msgid "Server section whose SSH connection carries this tunnel."
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Not running"
+msgstr ""
+
+msgid "Active (remote side)"
+msgstr ""
+
+msgid "Active (tun/tap)"
+msgstr ""
+
+msgid "Listening"
+msgstr ""
+
+msgid "Not listening"
+msgstr ""
+
+msgid "Runtime status unavailable."
+msgstr ""
+
+msgid "Open status page"
+msgstr ""
+
+msgid "Running (%s instance(s))"
+msgstr ""
+
+msgid "Unknown"
+msgstr ""
+
+msgid "Service"
+msgstr ""
+
+msgid "Client"
+msgstr ""
+
+msgid "Listening ports"
+msgstr ""
+
+msgid "Log entries"
+msgstr ""
+
+msgid "Type"
+msgstr ""
+
+msgid "Forward"
+msgstr ""
+
+msgid "State"
+msgstr ""
+
+msgid "No tunnels configured."
+msgstr ""
+
+msgid "Forwarding Status"
+msgstr ""
+
+msgid "Local and dynamic forwards are checked against the listening TCP ports on this device. Remote forwards are bound on the peer and cannot be probed locally."
+msgstr ""
+
+msgid "Service Status"
+msgstr ""
+
+msgid "Runtime status unavailable. The service may be stopped or the ACL permissions may be missing."
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Stopped"
+msgstr ""
+
+msgid "PID"
+msgstr ""
+
+msgid "Uptime"
+msgstr ""
+
+msgid "Command Line"
+msgstr ""
+
+msgid "No running instances."
+msgstr ""
+
+msgid "Program"
+msgstr ""
+
+msgid "Time"
+msgstr ""
+
+msgid "Priority"
+msgstr ""
+
+msgid "Message"
+msgstr ""
+
+msgid "No log entries found."
+msgstr ""
+
+msgid "Recent Log"
+msgstr ""
+
+msgid "Most recent sshtunnel syslog entries (newest first)."
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
