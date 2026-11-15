@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 'require fs';
 'require rpc';
 'require uci';
@@ -148,8 +149,8 @@ function _clientFromCommand(command) {
 	if (/\bdbclient\b/.test(prog))
 		return 'dropbear';
 	if (/\bssh\b/.test(prog)) {
-		if (/\s-nN(\s|$)/.test(args)) return 'openssh';
-		if (/\s-N(\s|$)/.test(args)) return 'dropbear';
+		if (/(^|\s)-nN(\s|$)/.test(args)) return 'openssh';
+		if (/(^|\s)-N(\s|$)/.test(args)) return 'dropbear';
 	}
 	return null;
 }
@@ -512,9 +513,13 @@ function renderFull(data) {
 	return E('div', {}, nodes);
 }
 
-return {
+/* LuCI's require() expects every module factory to yield a baseclass
+ * subclass; it instantiates the class and injects that instance into the
+ * views which require it. Returning a plain object would fail the
+ * Class.isSubclass() check with "factory yields invalid constructor". */
+return baseclass.extend({
 	load: load,
 	renderSummary: renderSummary,
 	renderForwardingTable: renderForwardingTable,
 	renderFull: renderFull
-};
+});
