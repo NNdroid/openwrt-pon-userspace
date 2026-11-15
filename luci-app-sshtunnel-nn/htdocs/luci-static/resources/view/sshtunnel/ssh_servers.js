@@ -13,7 +13,7 @@ return view.extend({
 		});
 	},
 
-	render([sshKeyNames]) {
+	render(sshKeyNames) {
 		if (sshKeyNames.length === 0) {
 			ui.addNotification(null, E('p', _('No SSH keys found, <a %s>generate a new one</a>').format('href="./ssh_keys"')), 'warning');
 		}
