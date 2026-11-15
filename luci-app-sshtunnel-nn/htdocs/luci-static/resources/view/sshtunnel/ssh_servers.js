@@ -18,6 +18,19 @@ return view.extend({
 			ui.addNotification(null, E('p', _('No SSH keys found, <a %s>generate a new one</a>').format('href="./ssh_keys"')), 'warning');
 		}
 
+		// Workaround: on themes without an intrinsic min-width on .cbi-dropdown
+		// (e.g. luci-theme-argon) a long unbroken value such as an SSH key file
+		// name collapses the GridSection column to ~1 char wide, so the option
+		// text wraps character-by-character and the closed control shows nothing.
+		// Force a sane min-width and keep labels on one line (clipped/ellipsis)
+		// so the closed control stays usable and the opened list expands fully.
+		if (!document.getElementById('sshtunnel-dropdown-fix')) {
+			document.head.appendChild(E('style', { id: 'sshtunnel-dropdown-fix' },
+				'#cbi-sshtunnel .cbi-dropdown { min-width: 10rem; }\n' +
+				'#cbi-sshtunnel .cbi-dropdown > ul > li { white-space: nowrap !important; }'
+			));
+		}
+
 		let m, s, o;
 
 		m = new form.Map('sshtunnel', _('SSH Tunnels'),
