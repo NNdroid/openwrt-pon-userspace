@@ -18,19 +18,6 @@ return view.extend({
 			ui.addNotification(null, E('p', _('No SSH keys found, <a %s>generate a new one</a>').format('href="./ssh_keys"')), 'warning');
 		}
 
-		// Workaround: on themes without an intrinsic min-width on .cbi-dropdown
-		// (e.g. luci-theme-argon) a long unbroken value such as an SSH key file
-		// name collapses the GridSection column to ~1 char wide, so the option
-		// text wraps character-by-character and the closed control shows nothing.
-		// Force a sane min-width and keep labels on one line (clipped/ellipsis)
-		// so the closed control stays usable and the opened list expands fully.
-		if (!document.getElementById('sshtunnel-dropdown-fix')) {
-			document.head.appendChild(E('style', { id: 'sshtunnel-dropdown-fix' },
-				'#cbi-sshtunnel .cbi-dropdown { min-width: 10rem; }\n' +
-				'#cbi-sshtunnel .cbi-dropdown > ul > li { white-space: nowrap !important; }'
-			));
-		}
-
 		let m, s, o;
 
 		m = new form.Map('sshtunnel', _('SSH Tunnels'),
@@ -58,17 +45,15 @@ return view.extend({
 		o = s.taboption('general', form.Value, 'user', _('User'));
 		o.default = 'root';
 
-		o = s.taboption('general', form.ListValue, 'IdentityFile', _('Identity Key'),
+		o = s.taboption('general', form.Value, 'IdentityFile', _('Identity Key'),
 			_('Private key file with authentication identity.') + '<br />' +
 			_('If not specified then a default will be used.') + '<br />' +
 			_('For Dropbear %s').format('<code>id_dropbear</code>') + '<br />' +
 			_('For OpenSSH %s').format('<code>id_rsa, id_ed25519, id_ecdsa</code>') +
-			_manSshConfig('IdentityFile')
+			_manSshConfig('IdentityFile') +
+			_discoveredKeysHint(sshKeyNames)
 		);
-		o.value('');
-		for (let sshKeyName of sshKeyNames) {
-			o.value('/root/.ssh/' + sshKeyName, sshKeyName);
-		}
+		o.placeholder = '/root/.ssh/id_ed25519';
 		o.optional = true;
 
 
@@ -176,5 +161,15 @@ function _findAllPossibleIdKeys(entries) {
 function _manSshConfig(opt) {
 	return '<br />' + _('See %s.')
 			.format('<a target="_blank" href="https://manpages.debian.org/testing/openssh-client/ssh_config.5#'+ opt + '">ssh_config ' + opt + '</a>');
+}
+
+function _discoveredKeysHint(sshKeyNames) {
+	if (!sshKeyNames || sshKeyNames.length === 0)
+		return '';
+
+	return '<br />' + _('Discovered keys in %s: %s').format(
+		'<code>/root/.ssh/</code>',
+		sshKeyNames.map(function (name) { return '<code>' + name + '</code>'; }).join(', ')
+	);
 }
 
