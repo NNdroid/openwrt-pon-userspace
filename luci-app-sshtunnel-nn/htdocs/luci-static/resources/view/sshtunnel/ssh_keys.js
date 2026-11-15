@@ -41,7 +41,7 @@ return view.extend({
 				.format('href="https://openwrt.org/docs/guide-user/services/ssh/sshtunnel"')
 		);
 
-		s = m.section(form.Section);
+		s = m.section(form.GridSection, 'sshtunnel', _('SSH Keys'));
 		s.render = L.bind(_renderSshKeys, this, sshKeys);
 
 		return m.render();
