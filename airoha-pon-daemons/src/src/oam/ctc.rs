@@ -194,6 +194,23 @@ impl CtcSession {
         ]))
     }
 
+    /// Detect an AUTH_REQUEST before consuming the PDU, so the caller can
+    /// refresh the live line identity before building AUTH_RESPONSE.
+    pub fn is_authentication_request(&self, payload: &[u8], config: &OamConfig) -> bool {
+        if payload.len() < 4
+            || payload[..3] != config.ctc_oui
+            || payload[3] != OPCODE_AUTHENTICATION
+        {
+            return false;
+        }
+        let data = &payload[4..];
+        if data.len() < 3 || data[0] != AUTH_REQUEST {
+            return false;
+        }
+        let length = u16::from_be_bytes([data[1], data[2]]);
+        length == 1 || length == 0x0101
+    }
+
     pub fn handle_organization_pdu(
         &mut self,
         payload: &[u8],
@@ -737,5 +754,24 @@ mod tests {
                 .expect("ONU SN attribute"),
             active
         );
+    }
+
+    #[test]
+    fn authentication_request_is_detected_before_handling() {
+        let config = OamConfig::default();
+        let session = CtcSession::new();
+        let request = with_org_header(
+            config.ctc_oui,
+            OPCODE_AUTHENTICATION,
+            vec![AUTH_REQUEST, 0x00, 0x01],
+        );
+        let accepted = with_org_header(
+            config.ctc_oui,
+            OPCODE_AUTHENTICATION,
+            vec![AUTH_SUCCESS, 0x00, 0x00],
+        );
+
+        assert!(session.is_authentication_request(&request, &config));
+        assert!(!session.is_authentication_request(&accepted, &config));
     }
 }

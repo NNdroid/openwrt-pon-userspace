@@ -123,6 +123,13 @@ impl StatusHub {
         self.shared.lock().expect("status mutex poisoned").ctc = snapshot;
     }
 
+    /// Refresh the values that come from the live PON line epoch.
+    pub fn update_identity(&self, config: &OamConfig, source_mac: [u8; 6]) {
+        let mut inner = self.shared.lock().expect("status mutex poisoned");
+        inner.oam_config = config.clone();
+        inner.source_mac = source_mac;
+    }
+
     pub fn record_event(&self, kind: &'static str, message: String) {
         let mut inner = self.shared.lock().expect("status mutex poisoned");
         inner.event_sequence += 1;
@@ -392,5 +399,28 @@ mod tests {
             identity_field_json(b"", &[0; 4], false),
             "{\"text\":\"\",\"wire\":\"00000000\",\"sent\":false}"
         );
+    }
+
+    #[test]
+    fn update_identity_replaces_status_snapshot_values() {
+        use super::super::ctc::CtcSession;
+
+        let hub = StatusHub::new(
+            "oam0",
+            "ctc",
+            false,
+            CtcSession::new().snapshot(),
+            OamConfig::default(),
+            [0; 6],
+        );
+        let mut config = OamConfig::default();
+        config.active_serial_number = Some(*b"HWTC1234");
+        let source_mac = [0x02, 0x11, 0x22, 0x33, 0x44, 0x55];
+
+        hub.update_identity(&config, source_mac);
+
+        let inner = hub.shared.lock().expect("status mutex poisoned");
+        assert_eq!(inner.oam_config.active_serial_number, Some(*b"HWTC1234"));
+        assert_eq!(inner.source_mac, source_mac);
     }
 }
