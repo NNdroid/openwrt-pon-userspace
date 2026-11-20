@@ -21,6 +21,7 @@ pub struct OamConfig {
     /// CTC AUTH_RESPONSE has always right aligned the LOID; keep that default.
     pub loid_padding: LoidPadding,
     pub ge_ports: u8,
+    pub active_serial_number: Option<[u8; 8]>,
 }
 
 impl Default for OamConfig {
@@ -40,6 +41,7 @@ impl Default for OamConfig {
             loid_password: Vec::new(),
             loid_padding: LoidPadding::Leading,
             ge_ports: 1,
+            active_serial_number: None,
         }
     }
 }
@@ -112,6 +114,18 @@ impl OamConfig {
 
     pub fn ctc_enabled(&self) -> bool {
         self.operator == "ctc"
+    }
+
+    pub fn onu_serial(&self, source_mac: [u8; 6]) -> [u8; 8] {
+        if let Some(serial) = self.active_serial_number {
+            return serial;
+        }
+
+        let mut serial = [0u8; 8];
+        let vendor = fixed_width(&self.vendor_id, 4);
+        serial[..4].copy_from_slice(&vendor);
+        serial[4..].copy_from_slice(&source_mac[2..]);
+        serial
     }
 }
 
@@ -247,5 +261,23 @@ mod tests {
         assert!(!oam.ctc_enabled());
         assert_eq!(oam.ctc_oui, OamConfig::default().ctc_oui);
         assert_eq!(oam.ctc_versions, OamConfig::default().ctc_versions);
+    }
+
+    #[test]
+    fn onu_serial_uses_active_line_identity() {
+        let mut config = OamConfig::default();
+        config.active_serial_number = Some(*b"HWTC1234");
+
+        assert_eq!(config.onu_serial([0; 6]), *b"HWTC1234");
+    }
+
+    #[test]
+    fn onu_serial_falls_back_to_vendor_and_mac() {
+        let config = OamConfig::default();
+
+        assert_eq!(
+            config.onu_serial([0x02, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            *b"OWRT\x22\x33\x44\x55"
+        );
     }
 }

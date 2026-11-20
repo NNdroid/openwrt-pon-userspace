@@ -213,8 +213,8 @@ fn status_json(inner: &Inner) -> String {
         .collect::<Vec<_>>()
         .join(",");
     /* Report the exact bytes the CTC agent puts on the wire, not the raw UCI
-     * values: the ONU SN is assembled from several fields plus the parent MAC,
-     * and the LOID is right-aligned into a 24-byte authentication field. */
+     * values: the ONU SN uses the driver's active PON serial (or a vendor/MAC
+     * fallback), and the LOID is right-aligned into a 24-byte field. */
     let onu_sn_hex = hex_bytes(&onu_sn(
         &inner.oam_config,
         inner.source_mac,
