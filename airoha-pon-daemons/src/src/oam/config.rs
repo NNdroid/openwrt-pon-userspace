@@ -4,6 +4,14 @@ use std::io;
 
 use crate::config::{LoidPadding, Section};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CtcSnFormat {
+    /// 8-byte active serial: vendor ID plus the line identity latched by the driver.
+    Active,
+    /// CTC 2.1/3.0 composite attribute: vendor, model, MAC and version fields.
+    Composite,
+}
+
 #[derive(Clone, Debug)]
 pub struct OamConfig {
     pub operator: String,
@@ -22,6 +30,7 @@ pub struct OamConfig {
     pub loid_padding: LoidPadding,
     pub ge_ports: u8,
     pub active_serial_number: Option<[u8; 8]>,
+    pub ctc_sn_format: CtcSnFormat,
 }
 
 impl Default for OamConfig {
@@ -42,6 +51,7 @@ impl Default for OamConfig {
             loid_padding: LoidPadding::Leading,
             ge_ports: 1,
             active_serial_number: None,
+            ctc_sn_format: CtcSnFormat::Active,
         }
     }
 }
@@ -91,6 +101,18 @@ impl OamConfig {
         }
         config.loid_padding =
             LoidPadding::from_option(section.option("loid_padding"), config.loid_padding);
+        match section.option("ctc_sn_format").unwrap_or("") {
+            "" | "active" => config.ctc_sn_format = CtcSnFormat::Active,
+            "composite" => config.ctc_sn_format = CtcSnFormat::Composite,
+            other => {
+                /* Unknown values keep the caller's default so a typo cannot
+                 * stop the OAM agent and take the PON line down. */
+                eprintln!(
+                    "OAM config: unknown ctc_sn_format '{other}', using {:?}",
+                    config.ctc_sn_format
+                );
+            }
+        }
 
         config.validate()?;
         Ok(config)
@@ -279,5 +301,43 @@ mod tests {
             config.onu_serial([0x02, 0x11, 0x22, 0x33, 0x44, 0x55]),
             *b"OWRT\x22\x33\x44\x55"
         );
+    }
+
+    #[test]
+    fn ctc_sn_format_defaults_to_active_and_accepts_known_values() {
+        let config = PonConfig::parse(
+            "config oam 'line0_oam'\n\
+             \toption line 'line0'\n",
+        )
+        .unwrap();
+        let oam = OamConfig::from_section(config.linked_section("oam", "line0").unwrap()).unwrap();
+        assert_eq!(oam.ctc_sn_format, CtcSnFormat::Active);
+
+        let config = PonConfig::parse(
+            "config oam 'line0_oam'\n\
+             \toption line 'line0'\n\
+             \toption ctc_sn_format 'active'\n",
+        )
+        .unwrap();
+        let oam = OamConfig::from_section(config.linked_section("oam", "line0").unwrap()).unwrap();
+        assert_eq!(oam.ctc_sn_format, CtcSnFormat::Active);
+
+        let config = PonConfig::parse(
+            "config oam 'line0_oam'\n\
+             \toption line 'line0'\n\
+             \toption ctc_sn_format 'composite'\n",
+        )
+        .unwrap();
+        let oam = OamConfig::from_section(config.linked_section("oam", "line0").unwrap()).unwrap();
+        assert_eq!(oam.ctc_sn_format, CtcSnFormat::Composite);
+
+        let config = PonConfig::parse(
+            "config oam 'line0_oam'\n\
+             \toption line 'line0'\n\
+             \toption ctc_sn_format 'typo'\n",
+        )
+        .unwrap();
+        let oam = OamConfig::from_section(config.linked_section("oam", "line0").unwrap()).unwrap();
+        assert_eq!(oam.ctc_sn_format, CtcSnFormat::Active);
     }
 }

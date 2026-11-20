@@ -709,7 +709,7 @@ function renderOam(item) {
 			row(_('CTC discovery'), displayCtcDiscovery(values.ctc_discovery_state)),
 			row(_('CTC version'), values.ctc_version == null ?
 				_('Not negotiated') : hexCode(values.ctc_version, 2)),
-			row(_('PON MAC used in ONU SN'), values.source_mac),
+			row(_('PON MAC address'), values.source_mac),
 			row(_('CTC ONU SN (0xC7/0x0001)'), displayWireBytes(values.onu_sn)),
 			row(_('LOID sent in authentication'), displayWireBytes(values.loid_sent)),
 			row(_('LOID configured locally'), displayBoolean(values.loid_configured)),

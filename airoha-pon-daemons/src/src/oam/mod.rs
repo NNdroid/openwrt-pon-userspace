@@ -34,7 +34,7 @@ pub fn run_agent(interface: &str, mut config: OamConfig, control_socket: &Path) 
     let service_ready = parent_xpon_attribute(interface, "service_ready")?;
     publish_service_ready(service_ready.as_deref(), false);
     let mut published_service_ready = false;
-    let mut line_was_down = false;
+    let mut identity_refresh_pending = false;
     let mut ieee = IeeeSession::new();
     let mut ctc = CtcSession::new();
     let status = StatusHub::new(
@@ -60,21 +60,22 @@ pub fn run_agent(interface: &str, mut config: OamConfig, control_socket: &Path) 
             Ok(frame) => frame,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) if line_is_down(&error) && socket.interface_present() => {
-                if !line_was_down {
+                if !identity_refresh_pending {
                     status.record_event("line", "PON control netdev is down".to_owned());
+                    publish_service_ready(service_ready.as_deref(), false);
                     published_service_ready = false;
                 }
-                line_was_down = true;
+                identity_refresh_pending = true;
                 continue;
             }
             Err(error) => return Err(error),
         };
-        if line_was_down {
-            refresh_line_identity(interface, &mut config, &mut source_mac, &status);
-            line_was_down = false;
-        }
         if received.packet_type == PACKET_OUTGOING {
             continue;
+        }
+        if identity_refresh_pending {
+            identity_refresh_pending =
+                !refresh_line_identity(interface, &mut config, &mut source_mac, &status);
         }
 
         let pdu = match OamPdu::parse(received.bytes) {
@@ -89,8 +90,11 @@ pub fn run_agent(interface: &str, mut config: OamConfig, control_socket: &Path) 
         if config.ctc_enabled()
             && pdu.code == CODE_ORGANIZATION_SPECIFIC
             && ctc.is_authentication_request(pdu.payload, &config)
+            && !refresh_line_identity(interface, &mut config, &mut source_mac, &status)
         {
-            refresh_line_identity(interface, &mut config, &mut source_mac, &status);
+            /* Keep retrying on the next frame instead of silently using a
+             * stale identity for the whole authentication attempt. */
+            identity_refresh_pending = true;
         }
 
         let response = match pdu.code {
@@ -162,11 +166,12 @@ pub fn run_agent(interface: &str, mut config: OamConfig, control_socket: &Path) 
         if let Some(response) = response {
             if let Err(error) = socket.send(&response) {
                 if line_is_down(&error) {
-                    if !line_was_down {
+                    if !identity_refresh_pending {
                         status.record_event("line", "PON control netdev is down".to_owned());
+                        publish_service_ready(service_ready.as_deref(), false);
                         published_service_ready = false;
                     }
-                    line_was_down = true;
+                    identity_refresh_pending = true;
                     continue;
                 }
                 return Err(error);
@@ -201,25 +206,29 @@ fn active_serial_number(interface: &str) -> io::Result<Option<[u8; 8]>> {
 }
 
 /// Re-read the values latched by a new PON line epoch. Keep the previous values
-/// on failure so a transient sysfs error cannot change the identity on the wire.
+/// on failure so a transient sysfs error cannot change the identity on the wire,
+/// but report the failure so the caller can retry instead of using stale data
+/// for the rest of the authentication attempt.
 fn refresh_line_identity(
     interface: &str,
     config: &mut OamConfig,
     source_mac: &mut [u8; 6],
     status: &StatusHub,
-) {
+) -> bool {
     let mac = match parent_interface_mac(interface) {
         Ok(mac) => mac,
         Err(error) => {
+            status.set_identity_refresh(false);
             status.record_event("line", format!("parent MAC refresh failed: {error}"));
-            return;
+            return false;
         }
     };
     let serial = match active_serial_number(interface) {
         Ok(serial) => serial,
         Err(error) => {
+            status.set_identity_refresh(false);
             status.record_event("line", format!("active serial refresh failed: {error}"));
-            return;
+            return false;
         }
     };
 
@@ -238,6 +247,7 @@ fn refresh_line_identity(
             serial_text
         ),
     );
+    true
 }
 
 fn publish_service_ready(path: Option<&Path>, ready: bool) {

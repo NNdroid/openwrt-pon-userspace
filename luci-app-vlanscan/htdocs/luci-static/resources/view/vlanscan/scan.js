@@ -81,18 +81,25 @@ function normalizeLog(text) {
  * inherits the current text colour, so the view stays readable in both
  * light and dark LuCI themes. Accent colours are used only as small chips. */
 var CSS = [
-	'.vscan-card{background:rgba(127,127,127,.055);border:1px solid rgba(127,127,127,.2);border-radius:12px;padding:16px 18px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.05);}',
+	'.vscan-root{padding:2px 0 0;}',
+	'.vscan-root > h2{margin:0 0 10px;}',
+	'.vscan-root > .cbi-map-descr{margin:0 0 14px;line-height:1.6;opacity:.78;}',
+	'.vscan-root .vscan-panel{padding:2px 0 0;}',
+	'.vscan-root .vscan-panel > h3{margin:18px 0 10px;padding:0 2px;font-size:15px;}',
+	'.vscan-card{background:rgba(127,127,127,.055);border:1px solid rgba(127,127,127,.2);border-radius:12px;padding:18px 20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.05);}',
 	'.vscan-card.status-running{border-top:3px solid #22a06b;}',
 	'.vscan-card.status-completed{border-top:3px solid #2d8cf0;}',
 	'.vscan-card.status-failed{border-top:3px solid #d0453b;}',
 	'.vscan-card.status-interrupted{border-top:3px solid #b5650a;}',
-	'.vscan-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}',
+	'.vscan-card > * + *{margin-top:10px;}',
+	'.vscan-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:9px;border-bottom:1px solid rgba(127,127,127,.12);}',
 	'.vscan-badges{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;}',
 	'.vscan-status{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:11px;font-size:11.5px;font-weight:600;background:rgba(127,127,127,.14);color:inherit;}',
 	'.vscan-status-dot{width:7px;height:7px;border-radius:50%;flex:none;}',
 	'.vscan-title{font-weight:600;font-size:15px;color:inherit;}',
 	'.vscan-sub{opacity:.68;font-size:12px;margin-left:2px;}',
 	'.vscan-actions{display:inline-flex;gap:6px;}',
+	'.vscan-actions .btn{margin-left:4px;}',
 	'.vscan-tag{display:inline-block;padding:2px 9px;border-radius:11px;font-size:11.5px;background:rgba(127,127,127,.14);color:inherit;}',
 	'.vscan-tag.accent{background:rgba(45,140,240,.14);border-left:3px solid #2d8cf0;}',
 	'.vscan-params{display:flex;flex-wrap:wrap;gap:6px;margin:11px 0 2px;}',
@@ -104,11 +111,11 @@ var CSS = [
 	'.vscan-progress-meta{font-size:12px;opacity:.75;margin-bottom:5px;}',
 	'.vscan-progress{height:6px;border-radius:6px;background:rgba(127,127,127,.18);overflow:hidden;}',
 	'.vscan-progress > div{height:100%;border-radius:6px;background:#2d8cf0;transition:width .3s ease;}',
-	'.vscan-results-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-weight:600;font-size:13px;color:inherit;margin:14px 0 4px;}',
+	'.vscan-results-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-weight:600;font-size:13px;color:inherit;margin:14px 0 8px;padding:0 2px;}',
 	'.vscan-count{font-weight:500;font-size:11.5px;padding:2px 9px;border-radius:10px;background:rgba(45,140,240,.13);}',
-	'.vscan-table{width:100%;border-collapse:collapse;margin-top:4px;font-size:13px;}',
-	'.vscan-table th{text-align:left;background:rgba(127,127,127,.1);padding:8px 10px;border-bottom:2px solid rgba(127,127,127,.2);color:inherit;font-weight:600;white-space:nowrap;}',
-	'.vscan-table td{padding:7px 10px;border-bottom:1px solid rgba(127,127,127,.13);vertical-align:middle;}',
+	'.vscan-table{width:100%;border-collapse:collapse;margin:8px 0 4px;font-size:13px;}',
+	'.vscan-table th{text-align:left;background:rgba(127,127,127,.1);padding:9px 12px;border-bottom:2px solid rgba(127,127,127,.2);color:inherit;font-weight:600;white-space:nowrap;}',
+	'.vscan-table td{padding:9px 12px;border-bottom:1px solid rgba(127,127,127,.13);vertical-align:middle;}',
 	'.vscan-table tr:last-child td{border-bottom:none;}',
 	'.vscan-untagged td:first-child{font-weight:600;color:#c47b10;}',
 	'.vscan-total td{font-weight:600;background:rgba(127,127,127,.07);border-top:2px solid rgba(127,127,127,.2);}',
@@ -124,24 +131,39 @@ var CSS = [
 	'.vscan-chip.igmp{border-left-color:#c47b10;}',
 	'.vscan-chip.small{padding:0 6px;font-size:10.5px;margin-left:6px;}',
 	'.vscan-empty{opacity:.55;font-style:italic;padding:6px 0;}',
-	'.vscan-note{color:#d0453b;font-size:12.5px;margin-top:8px;}',
-	'.vscan-tabs{display:flex;gap:2px;border-bottom:1px solid rgba(127,127,127,.25);margin:16px 0 16px;flex-wrap:wrap;}',
-	'.vscan-tab{appearance:none;-webkit-appearance:none;background:transparent;border:0;border-bottom:2px solid transparent;padding:9px 17px;font-family:inherit;font-size:13.5px;font-weight:600;color:inherit;opacity:.62;cursor:pointer;}',
+	'.vscan-card > .vscan-empty{padding:12px 10px;border:1px dashed rgba(127,127,127,.2);border-radius:8px;}',
+	'.vscan-note{color:#d0453b;font-size:12.5px;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(208,69,59,.08);}',
+	'.vscan-form{display:block;padding:14px 16px 16px;margin:0 0 16px;border:1px solid rgba(127,127,127,.2);border-radius:12px;background:rgba(127,127,127,.055);}',
+	'.vscan-form .cbi-value{display:flex;align-items:flex-start;gap:14px;padding:9px 0;margin:0;border-bottom:1px solid rgba(127,127,127,.1);}',
+	'.vscan-form .cbi-value:last-child{border-bottom:none;padding-bottom:0;}',
+	'.vscan-form .cbi-value-title{flex:0 0 190px;max-width:220px;box-sizing:border-box;padding:7px 0 0;margin:0;font-weight:600;line-height:1.45;white-space:normal;}',
+	'.vscan-form .cbi-value-field{flex:1 1 auto;min-width:0;box-sizing:border-box;padding:2px 0 4px;}',
+	'.vscan-form .cbi-value-field:only-child{flex-basis:100%;}',
+	'.vscan-form .cbi-value-field input{max-width:420px;box-sizing:border-box;}',
+	'.vscan-form .cbi-value-field input[type="number"]{max-width:160px;}',
+	'.vscan-form .cbi-value-field select{max-width:420px;box-sizing:border-box;}',
+	'.vscan-form .cbi-value-description{margin:7px 2px 2px 0;font-size:12px;line-height:1.55;opacity:.7;}',
+	'.vscan-form .vscan-hint{margin-top:9px;padding-left:2px;}',
+	'.vscan-form .vscan-section-title{margin:4px 0 6px;}',
+	'.vscan-form .btn{margin:2px 6px 0 0;}',
+	'.vscan-tabs{display:flex;gap:2px;border-bottom:1px solid rgba(127,127,127,.25);margin:18px 0 14px;padding:0 2px;flex-wrap:wrap;}',
+	'.vscan-tab{appearance:none;-webkit-appearance:none;background:transparent;border:0;border-bottom:2px solid transparent;padding:10px 18px;font-family:inherit;font-size:13.5px;font-weight:600;color:inherit;opacity:.62;cursor:pointer;}',
 	'.vscan-tab:hover{opacity:.9;}',
 	'.vscan-tab.active{opacity:1;border-bottom-color:#2d8cf0;color:#2d8cf0;}',
 	'.vscan-tab-count{display:inline-block;margin-left:7px;padding:0 6px;border-radius:9px;font-size:10.5px;font-weight:600;background:rgba(127,127,127,.18);color:inherit;}',
 	'.vscan-tab.active .vscan-tab-count{background:rgba(45,140,240,.16);color:inherit;}',
 	'.vscan-panel{display:none;}',
 	'.vscan-panel.active{display:block;}',
-	'.vscan-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;}',
+	'.vscan-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:2px 0 8px;}',
 	'.vscan-toolbar label{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;opacity:.85;cursor:pointer;}',
 	'.vscan-toolbar select{max-width:340px;}',
-	'.vscan-log-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;}',
-	'.vscan-log-pre{max-height:520px;min-height:180px;overflow:auto;background:rgba(127,127,127,.09);border:1px solid rgba(127,127,127,.18);border-radius:8px;padding:11px 13px;margin:10px 0 0;white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:12px;line-height:1.55;color:inherit;}',
+	'.vscan-log-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;padding:2px 0 6px;}',
+	'.vscan-log-pre{max-height:520px;min-height:180px;overflow:auto;background:rgba(127,127,127,.09);border:1px solid rgba(127,127,127,.18);border-radius:8px;padding:12px 14px;margin:10px 0 0;white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:12px;line-height:1.55;color:inherit;}',
 	'.vscan-log-pre.empty{opacity:.62;font-style:italic;font-family:inherit;}',
-	'.vscan-log-meta{font-size:11.5px;opacity:.65;margin-top:9px;}',
+	'.vscan-log-meta{font-size:11.5px;opacity:.65;margin-top:9px;padding:0 2px;}',
 	'.vscan-section-title{font-weight:600;font-size:12px;opacity:.7;letter-spacing:.04em;text-transform:uppercase;margin:6px 0 2px;}',
-	'.vscan-hint{opacity:.68;font-size:12px;line-height:1.5;}'
+	'.vscan-hint{opacity:.68;font-size:12px;line-height:1.5;}',
+	'@media (max-width:720px){.vscan-form .cbi-value{flex-direction:column;gap:6px;}.vscan-form .cbi-value-title{flex-basis:auto;max-width:none;padding:0;}.vscan-form .cbi-value-field{width:100%;}.vscan-form .cbi-value-field input,.vscan-form .cbi-value-field select{width:100%;max-width:none;}}'
 ].join('\n');
 
 var cssInjected = false;
@@ -980,7 +1002,7 @@ return view.extend({
 					E('div', { 'class': 'vscan-section-title' }, _('Probe options')))),
 			waitRow, arpRow, vendorRow ];
 
-		var scanForm = E('div', { 'class': 'cbi-section' }, [
+		var scanForm = E('div', { 'class': 'cbi-section vscan-form' }, [
 			E('div', { 'class': 'cbi-value' }, [
 				E('label', { 'class': 'cbi-value-title' }, _('Interface')),
 				E('div', { 'class': 'cbi-value-field' }, [
@@ -1064,7 +1086,7 @@ return view.extend({
 			])
 		]);
 
-		var root = E('div', {}, [
+		var root = E('div', { 'class': 'vscan-root' }, [
 			E('h2', {}, _('VLAN Scan')),
 			E('div', { 'class': 'cbi-map-descr' },
 				_('Discover which 802.1Q VLAN ids carry traffic on the PON uplink. Passive listening never transmits anything; probing sends discovery frames only (ARP request, PPPoE PADI, DHCP DISCOVER) and never binds a lease or a session.')),

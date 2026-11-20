@@ -37,9 +37,6 @@ msgstr "调试模式会在内存中持续保留最近的 PON、OMCI 和 OAM 原�
 msgid "Diagnostic operations"
 msgstr "诊断操作"
 
-msgid "Diagnostics"
-msgstr "诊断"
-
 msgid "Download diagnostic package"
 msgstr "下载诊断包"
 
@@ -73,9 +70,6 @@ msgstr "无法重启 PON：%s"
 msgid "Board serial number"
 msgstr "板载序列号"
 
-msgid "Configuration"
-msgstr "配置"
-
 msgid "Data path state"
 msgstr "数据通路状态"
 
@@ -99,9 +93,6 @@ msgstr "应用映射失败"
 
 msgid "Failed to clear mapping"
 msgstr "清除映射失败"
-
-msgid "Grant access to PON configuration and board data"
-msgstr "允许访问 PON 配置与板级数据"
 
 msgid "Hardware version"
 msgstr "硬件版本"
@@ -195,9 +186,6 @@ msgstr "线路状态"
 
 msgid "Multiple data paths require packet classification"
 msgstr "多条数据通路需要报文分类支持"
-
-msgid "No"
-msgstr "否"
 
 msgctxt "PON status boolean"
 msgid "No"
@@ -296,9 +284,6 @@ msgstr "序列号（SN）"
 msgid "Software version"
 msgstr "软件版本"
 
-msgid "Status"
-msgstr "状态"
-
 msgid "The value must contain between %d and %d bytes."
 msgstr "该值必须为 %d 到 %d 字节。"
 
@@ -346,9 +331,6 @@ msgstr "PON 线路"
 
 msgid "XGTC state"
 msgstr "XGTC 状态"
-
-msgid "Yes"
-msgstr "是"
 
 msgctxt "PON status boolean"
 msgid "Yes"
@@ -771,14 +753,11 @@ msgstr "PON MAC 地址必须是单播地址。"
 msgid "The PON MAC address must not be all zeros."
 msgstr "PON MAC 地址不能全为零。"
 
-msgid "Used only by XG-PON and XGS-PON PLOAM registration; EPON registers with the PON MAC address."
-msgstr "仅 XG-PON / XGS-PON 的 PLOAM 注册使用该 SN；EPON 使用 PON MAC 地址注册。"
+msgid "Used for PLOAM registration (GPON, XG-PON and XGS-PON). For EPON CTC active mode the 8-byte ONU SN is the driver-latched active serial, which comes from this value when it is configured; composite mode uses vendor, model, MAC and version fields instead. Takes effect after the PON line restarts."
+msgstr "用于 PLOAM 注册（GPON、XG-PON 和 XGS-PON）。EPON CTC active 模式下，8 字节 ONU SN 使用驱动 latch 的 active serial；配置该项后会作为其来源。composite 模式则改用厂商、型号、MAC 和版本字段拼接。重启 PON 线路后生效。"
 
-msgid "Overrides the PON interface MAC used for EPON registration and the CTC ONU SN. Takes effect after a PON restart. Clearing it restores the factory MAC only after a reboot."
-msgstr "覆盖用于 EPON 注册和 CTC ONU SN 的 PON 接口 MAC 地址，重启 PON 线路后生效。清空该项后需重启设备才能恢复出厂 MAC。"
-
-msgid "PON MAC used in ONU SN"
-msgstr "ONU SN 中实际使用的 PON MAC"
+msgid "Overrides the PON interface MAC used for EPON registration. In CTC composite mode it is part of the ONU SN; in active mode it is used only when no active serial is configured. Takes effect after a PON restart. Clearing it restores the factory MAC only after a reboot."
+msgstr "覆盖用于 EPON 注册的 PON 接口 MAC 地址。CTC composite 模式下它会参与 ONU SN 拼接；active 模式下仅在未配置 active serial 时使用。重启 PON 线路后生效。清空该项后需重启设备才能恢复出厂 MAC。"
 
 msgid "Not configured"
 msgstr "未配置"
@@ -1103,3 +1082,15 @@ msgstr "上行 TX 门控已就绪"
 
 msgid "VLAN tagging rules"
 msgstr "VLAN 标记规则数"
+
+msgid "CTC ONU SN format"
+msgstr "CTC ONU SN 格式"
+
+msgid "8-byte active serial (for SN-bound OLTs)"
+msgstr "8 字节 active serial（用于绑定 SN 的 OLT）"
+
+msgid "38/54-byte CTC composite value"
+msgstr "38/54 字节 CTC 复合值"
+
+msgid "Selects the value sent in CTC leaf 0xC7/0x0001 and shown as the actual ONU SN. Active uses the driver serial; composite uses vendor, model, MAC and version fields. Takes effect after the PON daemon restarts."
+msgstr "选择 CTC 属性 0xC7/0x0001 实际发送、并在界面显示为 ONU SN 的值。Active 使用驱动 latch 的 serial；composite 使用厂商、型号、MAC 和版本字段拼接。PON 守护进程重启后生效。"

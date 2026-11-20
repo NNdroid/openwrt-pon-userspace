@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::config::{fixed_width, OamConfig};
+use super::config::{fixed_width, CtcSnFormat, OamConfig};
 use super::ctc::{hex_bytes, onu_sn, Snapshot};
 use crate::config::loid_field;
 
@@ -39,6 +39,7 @@ struct Inner {
     organization_rx: u64,
     last_code: Option<u8>,
     ctc: Snapshot,
+    identity_refresh_ok: bool,
     event_sequence: u64,
     events: VecDeque<Event>,
 }
@@ -73,6 +74,7 @@ impl StatusHub {
                 organization_rx: 0,
                 last_code: None,
                 ctc,
+                identity_refresh_ok: true,
                 event_sequence: 0,
                 events: VecDeque::with_capacity(EVENT_CAPACITY),
             })),
@@ -128,6 +130,14 @@ impl StatusHub {
         let mut inner = self.shared.lock().expect("status mutex poisoned");
         inner.oam_config = config.clone();
         inner.source_mac = source_mac;
+        inner.identity_refresh_ok = true;
+    }
+
+    pub fn set_identity_refresh(&self, ok: bool) {
+        self.shared
+            .lock()
+            .expect("status mutex poisoned")
+            .identity_refresh_ok = ok;
     }
 
     pub fn record_event(&self, kind: &'static str, message: String) {
@@ -184,6 +194,34 @@ fn write_events(stream: &mut UnixStream, status: &StatusHub, after: u64) -> io::
     stream.flush()
 }
 
+#[derive(Clone, Copy)]
+struct IdentitySentFlags {
+    vendor_id: bool,
+    model: bool,
+    equipment_id: bool,
+    hardware_version: bool,
+    software_version: bool,
+}
+
+/// Which identity fields are actually carried by CTC leaf 0xC7/0x0001.
+/// Composite mode sends every configured field; active mode only sends the
+/// latched serial, except that the historical fallback uses vendor ID plus
+/// the last four MAC bytes.
+fn identity_sent_flags(config: &OamConfig, ctc_active: bool, ctc_v3: bool) -> IdentitySentFlags {
+    let composite = ctc_active && config.ctc_sn_format == CtcSnFormat::Composite;
+    let active_fallback = ctc_active
+        && config.ctc_sn_format == CtcSnFormat::Active
+        && config.active_serial_number.is_none();
+
+    IdentitySentFlags {
+        vendor_id: composite || active_fallback,
+        model: composite,
+        equipment_id: composite && ctc_v3,
+        hardware_version: composite,
+        software_version: composite,
+    }
+}
+
 fn status_json(inner: &Inner) -> String {
     let carrier = read_carrier(&inner.interface)
         .map(|value| value.to_string())
@@ -220,8 +258,8 @@ fn status_json(inner: &Inner) -> String {
         .collect::<Vec<_>>()
         .join(",");
     /* Report the exact bytes the CTC agent puts on the wire, not the raw UCI
-     * values: the ONU SN uses the driver's active PON serial (or a vendor/MAC
-     * fallback), and the LOID is right-aligned into a 24-byte field. */
+     * values: the ONU SN follows the configured active/composite format, and
+     * the LOID is right-aligned into a 24-byte field. */
     let onu_sn_hex = hex_bytes(&onu_sn(
         &inner.oam_config,
         inner.source_mac,
@@ -245,6 +283,7 @@ fn status_json(inner: &Inner) -> String {
     let config = &inner.oam_config;
     let ctc_active = inner.operator == "ctc";
     let ctc_v3 = ctc_active && inner.ctc.selected_version.unwrap_or(0) >= 0x30;
+    let sent = identity_sent_flags(config, ctc_active, ctc_v3);
     let firmware: Vec<u8> = config.firmware_version.iter().copied().take(127).collect();
     let chipset_text = hex_bytes(&config.chipset_id);
     let ports = config.ge_ports.to_string();
@@ -257,23 +296,23 @@ fn status_json(inner: &Inner) -> String {
         identity_field_json(
             &config.vendor_id,
             &fixed_width(&config.vendor_id, 4),
-            ctc_active
+            sent.vendor_id
         ),
-        identity_field_json(&config.model, &fixed_width(&config.model, 4), ctc_active),
+        identity_field_json(&config.model, &fixed_width(&config.model, 4), sent.model),
         identity_field_json(
             &config.equipment_id,
             &fixed_width(&config.equipment_id, 16),
-            ctc_v3,
+            sent.equipment_id,
         ),
         identity_field_json(
             &config.hardware_version,
             &fixed_width(&config.hardware_version, 8),
-            ctc_active,
+            sent.hardware_version,
         ),
         identity_field_json(
             &config.software_version,
             &fixed_width(&config.software_version, 16),
-            ctc_active,
+            sent.software_version,
         ),
         identity_field_json(&firmware, &firmware, ctc_active),
         identity_field_json(chipset_text.as_bytes(), &config.chipset_id, ctc_active),
@@ -292,7 +331,7 @@ fn status_json(inner: &Inner) -> String {
             "\"authentication_status\":{},\"authentication_failure\":{},",
             "\"ctc_get_requests\":{},\"ctc_set_requests\":{},",
             "\"ctc_unsupported_requests\":{},\"vlan_object\":{},\"vlan_mode\":{},",
-            "\"vlan_ids\":[{}],\"event_sequence\":{}}}"
+            "\"vlan_ids\":[{}],\"identity_refresh_ok\":{},\"event_sequence\":{}}}"
         ),
         CONTROL_PROTOCOL_VERSION,
         json_string(&inner.interface),
@@ -321,6 +360,7 @@ fn status_json(inner: &Inner) -> String {
         vlan_object,
         vlan_mode,
         vlan_ids,
+        inner.identity_refresh_ok,
         inner.event_sequence,
     )
 }
@@ -402,6 +442,56 @@ mod tests {
     }
 
     #[test]
+    fn identity_sent_flags_follow_the_ctc_sn_format() {
+        let mut config = OamConfig::default();
+
+        let active = identity_sent_flags(&config, true, true);
+        assert!(active.vendor_id);
+        assert!(!active.model);
+        assert!(!active.equipment_id);
+        assert!(!active.hardware_version);
+        assert!(!active.software_version);
+
+        config.active_serial_number = Some(*b"HWTC1234");
+        let active_serial = identity_sent_flags(&config, true, true);
+        assert!(!active_serial.vendor_id);
+        assert!(!active_serial.model);
+
+        config.ctc_sn_format = CtcSnFormat::Composite;
+        let composite = identity_sent_flags(&config, true, false);
+        assert!(composite.vendor_id);
+        assert!(composite.model);
+        assert!(!composite.equipment_id);
+        assert!(composite.hardware_version);
+        assert!(composite.software_version);
+
+        let composite_v3 = identity_sent_flags(&config, true, true);
+        assert!(composite_v3.equipment_id);
+
+        let ieee = identity_sent_flags(&config, false, true);
+        assert!(!ieee.vendor_id);
+        assert!(!ieee.model);
+    }
+
+    #[test]
+    fn status_json_reports_identity_refresh_state() {
+        use super::super::ctc::CtcSession;
+
+        let hub = StatusHub::new(
+            "oam0",
+            "ctc",
+            false,
+            CtcSession::new().snapshot(),
+            OamConfig::default(),
+            [0; 6],
+        );
+        hub.set_identity_refresh(false);
+        let inner = hub.shared.lock().expect("status mutex poisoned");
+        let json = status_json(&inner);
+        assert!(json.contains("\"identity_refresh_ok\":false"));
+    }
+
+    #[test]
     fn update_identity_replaces_status_snapshot_values() {
         use super::super::ctc::CtcSession;
 
@@ -417,10 +507,12 @@ mod tests {
         config.active_serial_number = Some(*b"HWTC1234");
         let source_mac = [0x02, 0x11, 0x22, 0x33, 0x44, 0x55];
 
+        hub.set_identity_refresh(false);
         hub.update_identity(&config, source_mac);
 
         let inner = hub.shared.lock().expect("status mutex poisoned");
         assert_eq!(inner.oam_config.active_serial_number, Some(*b"HWTC1234"));
         assert_eq!(inner.source_mac, source_mac);
+        assert!(inner.identity_refresh_ok);
     }
 }

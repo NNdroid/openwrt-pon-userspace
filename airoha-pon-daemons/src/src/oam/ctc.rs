@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::config::{fixed_width, OamConfig};
+use super::config::{fixed_width, CtcSnFormat, OamConfig};
 use crate::config::loid_field;
 use crate::wire::{Reader, Writer};
 
@@ -43,10 +43,22 @@ const NO_RESOURCE: u8 = 0x87;
 
 /// Exact bytes returned to the OLT for the CTC ONU SN attribute (0xC7/0x0001).
 /// The Get Response and the control status share this value, so the LuCI page
-/// reports the active PON serial latched by the driver, or the vendor/MAC
-/// fallback when no active serial is available.
-pub fn onu_sn(config: &OamConfig, source_mac: [u8; 6], _selected_version: Option<u8>) -> Vec<u8> {
-    config.onu_serial(source_mac).to_vec()
+/// always reports what is actually on the wire.
+pub fn onu_sn(config: &OamConfig, source_mac: [u8; 6], selected_version: Option<u8>) -> Vec<u8> {
+    match config.ctc_sn_format {
+        CtcSnFormat::Active => config.onu_serial(source_mac).to_vec(),
+        CtcSnFormat::Composite => {
+            let mut value = fixed_width(&config.vendor_id, 4);
+            value.extend_from_slice(&fixed_width(&config.model, 4));
+            value.extend_from_slice(&source_mac);
+            value.extend_from_slice(&fixed_width(&config.hardware_version, 8));
+            value.extend_from_slice(&fixed_width(&config.software_version, 16));
+            if selected_version.unwrap_or(0) >= 0x30 {
+                value.extend_from_slice(&fixed_width(&config.equipment_id, 16));
+            }
+            value
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -197,6 +209,9 @@ impl CtcSession {
     /// Detect an AUTH_REQUEST before consuming the PDU, so the caller can
     /// refresh the live line identity before building AUTH_RESPONSE.
     pub fn is_authentication_request(&self, payload: &[u8], config: &OamConfig) -> bool {
+        if self.state != DiscoveryState::Operational {
+            return false;
+        }
         if payload.len() < 4
             || payload[..3] != config.ctc_oui
             || payload[3] != OPCODE_AUTHENTICATION
@@ -495,7 +510,9 @@ impl CtcSession {
         }
 
         match leaf {
-            LEAF_ONU_SN if object.is_none() => Ok(config.onu_serial(source_mac).to_vec()),
+            LEAF_ONU_SN if object.is_none() => {
+                Ok(onu_sn(config, source_mac, self.selected_version))
+            }
             LEAF_FIRMWARE_VERSION if object.is_none() => {
                 Ok(config.firmware_version.iter().copied().take(127).collect())
             }
@@ -735,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn onu_sn_matches_the_bytes_sent_for_the_ctc_attribute() {
+    fn onu_sn_follows_the_configured_format() {
         let mut config = OamConfig::default();
         let mac = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
         let session = CtcSession::new();
@@ -754,12 +771,41 @@ mod tests {
                 .expect("ONU SN attribute"),
             active
         );
+
+        config.active_serial_number = None;
+        config.ctc_sn_format = CtcSnFormat::Composite;
+        let v21 = onu_sn(&config, mac, Some(0x21));
+        assert_eq!(v21.len(), 38);
+        assert_eq!(&v21[..4], b"OWRT");
+        assert_eq!(&v21[4..8], b"AN75");
+        assert_eq!(&v21[8..14], &mac[..]);
+        assert_eq!(&v21[14..22], b"AN7581\0\0");
+        assert_eq!(&v21[22..38], b"OpenWrt\0\0\0\0\0\0\0\0\0");
+
+        let v30 = onu_sn(&config, mac, Some(0x30));
+        assert_eq!(v30.len(), 54);
+        assert_eq!(&v30[38..54], b"AN75\0\0\0\0\0\0\0\0\0\0\0\0");
+        assert_eq!(
+            session
+                .get_value(EXTENDED_ATTRIBUTE, LEAF_ONU_SN, None, &config, mac)
+                .expect("ONU SN attribute"),
+            v21
+        );
+
+        let mut session_v3 = CtcSession::new();
+        session_v3.selected_version = Some(0x30);
+        assert_eq!(
+            session_v3
+                .get_value(EXTENDED_ATTRIBUTE, LEAF_ONU_SN, None, &config, mac)
+                .expect("ONU SN attribute"),
+            v30
+        );
     }
 
     #[test]
     fn authentication_request_is_detected_before_handling() {
         let config = OamConfig::default();
-        let session = CtcSession::new();
+        let mut session = CtcSession::new();
         let request = with_org_header(
             config.ctc_oui,
             OPCODE_AUTHENTICATION,
@@ -771,6 +817,10 @@ mod tests {
             vec![AUTH_SUCCESS, 0x00, 0x00],
         );
 
+        assert!(!session.is_authentication_request(&request, &config));
+
+        session.state = DiscoveryState::Operational;
+        session.selected_version = Some(0x21);
         assert!(session.is_authentication_request(&request, &config));
         assert!(!session.is_authentication_request(&accepted, &config));
     }

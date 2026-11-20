@@ -211,6 +211,7 @@ return view.extend({
 		o.value('', _('Driver default'));
 		o.value('xgpon', _('XG-PON'));
 		o.value('xgspon', _('XGS-PON'));
+		o.value('epon-1g', _('EPON 1G/1G'));
 		o.value('epon-10g-1g', _('10G-EPON 10G/1G'));
 		o.value('epon-10g-10g', _('10G-EPON 10G/10G'));
 
@@ -218,10 +219,7 @@ return view.extend({
 		o.placeholder = _('Board serial number');
 		o.rmempty = true;
 		o.validate = validateSerialNumber;
-		o.depends('mode', '');
-		o.depends('mode', 'xgpon');
-		o.depends('mode', 'xgspon');
-		o.description = _('Used only by XG-PON and XGS-PON PLOAM registration; EPON registers with the PON MAC address.');
+		o.description = _('Used for PLOAM registration (GPON, XG-PON and XGS-PON). For EPON CTC active mode the 8-byte ONU SN is the driver-latched active serial, which comes from this value when it is configured; composite mode uses vendor, model, MAC and version fields instead. Takes effect after the PON line restarts.');
 
 		o = s.option(form.Value, 'registration_id', _('Registration-ID'));
 		o.password = true;
@@ -236,7 +234,7 @@ return view.extend({
 		o.placeholder = _('Board MAC address');
 		o.rmempty = true;
 		o.validate = validateMacAddress;
-		o.description = _('Overrides the PON interface MAC used for EPON registration and the CTC ONU SN. Takes effect after a PON restart. Clearing it restores the factory MAC only after a reboot.');
+		o.description = _('Overrides the PON interface MAC used for EPON registration. In CTC composite mode it is part of the ONU SN; in active mode it is used only when no active serial is configured. Takes effect after a PON restart. Clearing it restores the factory MAC only after a reboot.');
 
 		s = m.section(form.TypedSection, 'omci', _('OMCI settings'));
 		s.anonymous = false;
@@ -349,6 +347,13 @@ return view.extend({
 		o.rmempty = true;
 		o.depends('operator', 'ctc');
 		o.validate = asciiLength(1, 12);
+
+		o = s.taboption('identity', form.ListValue, 'ctc_sn_format', _('CTC ONU SN format'));
+		o.default = 'active';
+		o.depends('operator', 'ctc');
+		o.value('active', _('8-byte active serial (for SN-bound OLTs)'));
+		o.value('composite', _('38/54-byte CTC composite value'));
+		o.description = _('Selects the value sent in CTC leaf 0xC7/0x0001 and shown as the actual ONU SN. Active uses the driver serial; composite uses vendor, model, MAC and version fields. Takes effect after the PON daemon restarts.');
 
 		o = s.taboption('identity', form.Value, 'vendor_id', _('Vendor ID'));
 		o.rmempty = true;
