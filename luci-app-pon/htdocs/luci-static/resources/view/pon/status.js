@@ -700,6 +700,7 @@ function renderOam(item) {
 		return [ statusTable(title, [ row(_('Error'), item.error) ]) ];
 	rows = [
 		row(_('LLID OAM channel online'), displayBoolean(values.channel_available)),
+		row(_('PON identity refresh'), displayBoolean(values.identity_refresh_ok)),
 		row(_('IEEE OAM discovery completed'),
 			displayBoolean(values.ieee_discovery_completed)),
 		row(_('Configured OAM profile'), values.operator === 'ctc' ?

@@ -278,8 +278,8 @@ fn status_json(inner: &Inner) -> String {
         .join(":");
 
     /* Publish each configured identity field with the bytes the CTC agent
-     * really returns, so LuCI can show the zero padding and the fields that
-     * the negotiated CTC version skips without duplicating that logic. */
+     * really returns, so LuCI can show the zero padding and the fields the
+     * current ONU SN format uses without duplicating that logic. */
     let config = &inner.oam_config;
     let ctc_active = inner.operator == "ctc";
     let ctc_v3 = ctc_active && inner.ctc.selected_version.unwrap_or(0) >= 0x30;

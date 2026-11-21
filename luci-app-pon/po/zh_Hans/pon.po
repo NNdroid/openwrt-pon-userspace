@@ -477,6 +477,9 @@ msgstr "设备序列号"
 msgid "PON MAC address"
 msgstr "PON MAC 地址"
 
+msgid "PON identity refresh"
+msgstr "PON 身份刷新"
+
 msgid "LAN base MAC address"
 msgstr "LAN 基础 MAC 地址"
 
