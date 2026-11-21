@@ -108,8 +108,9 @@ function displayOptionalCode(value) {
 
 /*
  * CTC 0xC7 carries the ONU identity. Every field reports the readable text,
- * the exact bytes the agent puts on the wire, and whether the negotiated CTC
- * version includes that attribute at all (CTC 3.0 adds the equipment ID).
+ * the exact bytes the agent would put on the wire, and whether those bytes are
+ * part of the current ONU SN format. Active mode uses the latched serial (or
+ * the vendor plus MAC fallback); composite mode uses the configured fields.
  */
 function displayIdentityField(identity, field) {
 	var value = identity && identity[field];
@@ -117,7 +118,7 @@ function displayIdentityField(identity, field) {
 	if (!value)
 		return _('Not reported');
 	if (value.sent !== true)
-		return _('Not sent by this CTC version: %s').format(
+		return _('Not used by the current ONU SN format: %s').format(
 			value.text || _('None'));
 	return E('div', {}, [
 		E('span', {}, value.text || _('None')),

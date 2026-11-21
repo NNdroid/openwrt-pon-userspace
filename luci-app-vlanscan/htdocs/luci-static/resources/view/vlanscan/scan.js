@@ -133,19 +133,19 @@ var CSS = [
 	'.vscan-empty{opacity:.55;font-style:italic;padding:6px 0;}',
 	'.vscan-card > .vscan-empty{padding:12px 10px;border:1px dashed rgba(127,127,127,.2);border-radius:8px;}',
 	'.vscan-note{color:#d0453b;font-size:12.5px;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(208,69,59,.08);}',
-	'.vscan-form{display:block;padding:14px 16px 16px;margin:0 0 16px;border:1px solid rgba(127,127,127,.2);border-radius:12px;background:rgba(127,127,127,.055);}',
-	'.vscan-form .cbi-value{display:flex;align-items:flex-start;gap:14px;padding:9px 0;margin:0;border-bottom:1px solid rgba(127,127,127,.1);}',
-	'.vscan-form .cbi-value:last-child{border-bottom:none;padding-bottom:0;}',
-	'.vscan-form .cbi-value-title{flex:0 0 190px;max-width:220px;box-sizing:border-box;padding:7px 0 0;margin:0;font-weight:600;line-height:1.45;white-space:normal;}',
-	'.vscan-form .cbi-value-field{flex:1 1 auto;min-width:0;box-sizing:border-box;padding:2px 0 4px;}',
+	'.vscan-form{display:block;padding:18px 20px 20px;margin:0 0 18px;border:1px solid rgba(127,127,127,.2);border-radius:12px;background:rgba(127,127,127,.055);}',
+	'.vscan-form .cbi-value{display:flex;align-items:flex-start;gap:28px;padding:14px 0;margin:0;border-bottom:1px solid rgba(127,127,127,.1);}',
+	'.vscan-form .cbi-value:last-child{border-bottom:none;}',
+	'.vscan-form .cbi-value-title{flex:0 0 200px;max-width:230px;box-sizing:border-box;padding:9px 0 0;margin:0;font-weight:600;line-height:1.45;white-space:normal;}',
+	'.vscan-form .cbi-value-field{flex:1 1 auto;min-width:0;box-sizing:border-box;padding:4px 0 6px;}',
 	'.vscan-form .cbi-value-field:only-child{flex-basis:100%;}',
 	'.vscan-form .cbi-value-field input{max-width:420px;box-sizing:border-box;}',
 	'.vscan-form .cbi-value-field input[type="number"]{max-width:160px;}',
 	'.vscan-form .cbi-value-field select{max-width:420px;box-sizing:border-box;}',
-	'.vscan-form .cbi-value-description{margin:7px 2px 2px 0;font-size:12px;line-height:1.55;opacity:.7;}',
-	'.vscan-form .vscan-hint{margin-top:9px;padding-left:2px;}',
-	'.vscan-form .vscan-section-title{margin:4px 0 6px;}',
-	'.vscan-form .btn{margin:2px 6px 0 0;}',
+	'.vscan-form .cbi-value-description{margin:10px 2px 4px 0;font-size:12px;line-height:1.6;opacity:.7;}',
+	'.vscan-form .vscan-hint{margin-top:12px;padding-left:2px;}',
+	'.vscan-form .vscan-section-title{margin:8px 0 10px;}',
+	'.vscan-form .btn{margin:12px 8px 0 0;}',
 	'.vscan-tabs{display:flex;gap:2px;border-bottom:1px solid rgba(127,127,127,.25);margin:18px 0 14px;padding:0 2px;flex-wrap:wrap;}',
 	'.vscan-tab{appearance:none;-webkit-appearance:none;background:transparent;border:0;border-bottom:2px solid transparent;padding:10px 18px;font-family:inherit;font-size:13.5px;font-weight:600;color:inherit;opacity:.62;cursor:pointer;}',
 	'.vscan-tab:hover{opacity:.9;}',
@@ -163,7 +163,7 @@ var CSS = [
 	'.vscan-log-meta{font-size:11.5px;opacity:.65;margin-top:9px;padding:0 2px;}',
 	'.vscan-section-title{font-weight:600;font-size:12px;opacity:.7;letter-spacing:.04em;text-transform:uppercase;margin:6px 0 2px;}',
 	'.vscan-hint{opacity:.68;font-size:12px;line-height:1.5;}',
-	'@media (max-width:720px){.vscan-form .cbi-value{flex-direction:column;gap:6px;}.vscan-form .cbi-value-title{flex-basis:auto;max-width:none;padding:0;}.vscan-form .cbi-value-field{width:100%;}.vscan-form .cbi-value-field input,.vscan-form .cbi-value-field select{width:100%;max-width:none;}}'
+	'@media (max-width:720px){.vscan-form .cbi-value{flex-direction:column;gap:8px;}.vscan-form .cbi-value-title{flex-basis:auto;max-width:none;padding:0;}.vscan-form .cbi-value-field{width:100%;}.vscan-form .cbi-value-field input,.vscan-form .cbi-value-field select{width:100%;max-width:none;}}'
 ].join('\n');
 
 var cssInjected = false;

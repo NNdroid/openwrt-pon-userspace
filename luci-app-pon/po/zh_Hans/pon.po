@@ -1029,8 +1029,8 @@ msgstr "Carrier 未置位"
 msgid "Not registered"
 msgstr "当前未注册"
 
-msgid "Not sent by this CTC version: %s"
-msgstr "当前 CTC 版本不发送该字段：%s"
+msgid "Not used by the current ONU SN format: %s"
+msgstr "当前 ONU SN 格式未使用该字段：%s"
 
 msgid "OAM frame counters"
 msgstr "OAM 帧分类计数"
